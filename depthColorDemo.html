@@ -1,0 +1,1733 @@
+<html>
+<head>
+</head>
+
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    font-family: 'Roboto', 'Noto', sans-serif;
+    line-height: 1.5;
+    background-color: #fbfbfb;
+    margin: 20px;
+  }
+
+  .select {
+    margin: 16px 0px;
+    display: flex;
+    flex-direction: column;
+    max-width: 400px;
+  }
+
+  select {
+    background-color: transparent;
+    width: 100%;
+    padding: 4px 0;
+    font-size: 16px;
+    color: rgba(0,0,0, 0.26);
+    border: none;
+    border-bottom: 1px solid rgba(0,0,0, 0.12);
+  }
+
+  select:focus {
+    outline: none;
+  }
+
+  .select > label {
+    font-size: 10pt;
+    color: gray;
+  }
+
+  #console {
+    color: red;
+    font-size: 150%;
+  }
+
+  canvas {
+    border: 1px solid #cccccd;
+    background-color: white;
+  }
+
+  #tabcontainer {
+    margin: 16px 0px;
+  }
+
+  #tabcontainer input {
+    height: 35px;
+    visibility: hidden;
+  }
+
+  label[for=tab1], label[for=tab2] {
+    color: gray;
+    cursor: pointer;
+    display: block;
+    float: left;
+    height, : 40px;
+    line-height: 40px;
+    margin-right: 5px;
+    padding: 0 20px;
+    text-align: center;
+  }
+  
+  #tabcontainer input:hover + label {
+    background: lightgray;
+    color: gray;
+  }
+
+  #tabcontainer input:checked + label {
+    background: #f0f0f0;
+    color: dimgray;
+    position: relative;
+    z-index: 6;
+  }
+
+  #tabcontent1, #tabcontent2 {
+    background: #f0f0f0;
+    opacity: 0;
+    position: absolute;
+    z-index: -100;
+  }
+
+  #tabcontainer input#tab1:checked ~ #tabcontent #tabcontent1,
+  #tabcontainer input#tab2:checked ~ #tabcontent #tabcontent2 {
+      opacity: 1;
+      z-index: 100;
+  }
+
+  input.visible {
+    visibility: visible !important;
+  }
+
+
+  video-stream {
+    color: dimgray;
+  }
+
+  #synctab {
+    margin: 16px;
+    padding:0px;
+    color: dimgray;
+  }
+
+  label[for=synccanvas] {
+    display:block;    
+  }
+
+  #show-background-video {
+    position: absolute;
+    bottom: 50px;
+    right: 25px;
+    color: gray;
+    z-index: 5;
+    height: 20px;
+    text-align: right;
+  }
+  #show-background-color {
+    position: absolute;
+    bottom: 30px;
+    right: 25px;
+    color: gray;
+    z-index: 5;
+    height: 20px;
+    text-align: right;
+  }
+  #show-video-toggle, #show-color-toggle {
+    visibility: visible !important;
+    height: 15px !important;
+    vertical-align:middle;
+  }
+</style>
+
+<template id="video-stream">
+  <style>
+    :host {
+      display: flex;
+      flex-flow: row wrap;
+    }
+
+    canvas {
+      align-self: center;
+    }
+
+    div {
+      margin: 16px;
+    }
+
+    label {
+      display: block;
+    }
+  </style>
+  <div>
+    <label>WebGL2.0-Compute Powered ICP wglFusion:</label>
+    <canvas id="canvasGL" width="640" height="480"></canvas>
+  </div>
+</template>
+
+<body onload="onLoad()">
+  <h2>wglFusion Demo</h2>
+  <div id="console">
+    <!-- Print error messages here. -->
+  </div>
+  <div class="select">
+    <label for="selectVideoDevice">Capture device with depth stream</label>
+    <select id="selectVideoDevice"></select>
+  </div>
+  <div id="tabcontainer">
+    <input id="tab1" type="radio" name="tabs" value="basic" checked="checked" data-ontaboff="stopBasicTab" data-ontabon="startBasicTab"/>
+    <label for="tab1">Render depth</label>
+    <div id="tabcontent">
+      <div id = tabcontent1>
+        <video-stream></video-stream>
+      </div>
+    </div>
+  </div>
+</body>
+
+<script src="../depthColor/node_modules/gl-matrix/gl-matrix-min.js"></script>
+<script src="../depthColor/node_modules/luqr/luqr.min.js"></script>
+<script src="depth-camera.js"></script>
+
+<script>
+  let readAndShowDepthPixels = false;
+  let error = window.console.error;
+  window.console.error = (message, ...rest) => {
+    let target = document.querySelector('#console');
+    error.call(window.console, message, ...rest);
+
+    if (message instanceof Error) {
+      message = `${message.name}: ${message.message}`;
+    }
+
+    target.innerHTML += `${message}<br>`;
+  }
+
+
+
+
+  let tabs = document.getElementsByName("tabs");
+  let videos = {depth: null, color: null};
+
+  let selectedtab = tabs[0];
+  for(let i = 0; i < tabs.length; i++) {
+    tabs[i].onclick = function() {
+      if(this !== selectedtab) {
+        window[selectedtab.dataset.ontaboff](); 
+        selectedtab = this;
+        window[selectedtab.dataset.ontabon](); 
+      }
+    };
+  }
+  
+  function stopVideo(video) {
+    if (video && video.srcObject) {
+      const cs = video.srcObject;
+      for (let track of cs.getTracks()) {
+        track.stop();
+      }
+      video.srcObject = null;
+    }
+  }
+
+  function startBasicTab() {
+    const videoStreamEl = document.querySelector('video-stream');
+    videoStreamEl.play();    
+  }
+
+  function stopBasicTab() {
+    const videoStreamEl = document.querySelector('video-stream');
+    videoStreamEl.pause();
+  }
+
+
+
+  const videoToggle = document.getElementById("show-video-toggle");
+  
+  // programs
+  var depthToVertProg;
+  var vertToNormProg;
+  var integrateProg;
+  var raycastProg;
+  var p2pTrackProg;
+  var p2pReduceProg;
+
+  var renderProgram;
+
+  var pose = glMatrix.mat4.create();
+  var K = glMatrix.mat4.create();
+      K[0] = 613.0;
+      K[5] = 613.0;
+      K[8] = 320.0;
+      K[12] = 240.0;
+
+  var invK = glMatrix.mat4.create();
+    	invK[0] = 1.0 / 613.0;
+      invK[5] = 1.0 / 613.0;
+      invK[8] = -320.0 / 613.0;
+      invK[12] = -240.0 / 613.0;
+
+  
+  
+
+  customElements.define('video-stream', class extends HTMLElement {
+    constructor() {
+      super();
+      const template = document.querySelector('#video-stream');
+      const clone = document.importNode(template.content, true);
+      const shadowRoot = this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(clone);
+
+      this._frameLoop = this._frameLoop.bind(this);
+
+      this.readBuffer = null;
+      this.readFormat = null;
+    }
+
+
+    connectedCallback() {
+      this.gl = this._configureGLContext();
+
+      this.frameAvailable = false;
+
+      this.video = this._createOffscreenVideo();
+      this.video.oncanplay = _ => { this.frameAvailable = true; }
+      this.video.addEventListener("play", this._frameLoop);
+
+      let hasTouchListeners = false;
+      const onVideoTouchStart = _ => {
+        hasTouchListeners = false;
+        window.removeEventListener("touchstart", onVideoTouchStart, true);
+        this.video.play();
+      }
+
+      if (this.video && this.video.paused && !hasTouchListeners) {
+        hasTouchListeners = true;
+        window.addEventListener("touchstart", onVideoTouchStart, true);
+      }
+    }
+
+    _createOffscreenVideo() {
+      return Object.assign(document.createElement("video"), {
+        autoplay: true,
+        loop: true,
+        crossOrigin: "anonymous",
+        width: 640,
+        height: 480
+      });
+    }
+    
+
+
+
+
+
+
+
+
+
+
+
+
+    _integrateVolume(iFlag, rFlag) {
+      const gl = this.gl;
+
+      gl.useProgram(integrateProg);
+
+      var invPose = glMatrix.mat4.create();
+      glMatrix.mat4.inverse(invPose, pose);
+
+      gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "K"), false, K);
+      gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "invT"), false, invPose);
+
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "integrateFlag"), iFlag);
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "resetFlag"), rFlag);
+
+      gl.uniform1i(gl.getUniformLocation(integrateProg, "p2p"), 1);
+      gl.uniform1i(gl.getUniformLocation(integrateProg, "p2v"), 0);
+
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "maxWeight"), 100.0);
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "volDim"), 1.0);
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "volSize"), 128.0);
+
+
+      gl.uniform4fv(gl.getUniformLocation(integrateProg, "cam"), [k[0], K[5], K[8], K[12]]);
+
+      // textures
+      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_WRITE, gl.R32UI);
+      gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(2, gl.track_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+
+      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    }
+
+
+
+    _resultToMatrix(_result, _delta)
+    {
+      // from https://github.com/g-truc/glm/tree/master/glm/gtx/euler_angles.inl
+      let c1 = Math.cos(-_result[3]);
+      let c2 = Math.cos(-_result[4]);
+      let c3 = Math.cos(-_result[5]);
+      let s1 = Math.sin(-_result[3]);
+      let s2 = Math.sin(-_result[4]);
+      let s3 = Math.sin(-_result[5]);
+      
+      _delta[0] = c2 * c3;
+      _delta[1] =-c1 * s3 + s1 * s2 * c3;
+      _delta[2] = s1 * s3 + c1 * s2 * c3;
+      _delta[3] = 0;
+      _delta[4] = c2 * s3;
+      _delta[5] = c1 * c3 + s1 * s2 * s3;
+      _delta[6] =-s1 * c3 + c1 * s2 * s3;
+      _delta[7] = 0;
+      _delta[8] =-s2;
+      _delta[9] = s1 * c2;
+      _delta[10] = c1 * c2;
+      _delta[11] = 0;
+      _delta[12] = _result[0];
+      _delta[13] = _result[1];
+      _delta[14] = _result[2];
+      _delta[15] = 1;
+    }
+
+
+    _solve(_A, _b, _result) {
+      result = luqr.solve(_A,_b);
+    }
+
+    _getReduction(_A, _b, _icpData) {
+      const gl = this.gl;
+
+      const result = new Float32Array(8 * 32);
+
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboReductionOutput);
+      gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, result);
+
+      for (let row = 1; row < 8; row++)
+		  {
+			  for (let col = 0; col < 32; col++)
+			  {
+				  outputReductionData[col + 0 * 32] += outputReductionData[col + row * 32];
+			  }
+		  }
+
+      /*
+      vector b
+      | 1 |
+      | 2 |
+      | 3 |
+      | 4 |
+      | 5 |
+      | 6 |
+      and
+      matrix a
+      | 7  | 8  | 9  | 10 | 11 | 12 |
+      | 8  | 13 | 14 | 15 | 16 | 17 |
+      | 9  | 14 | 18 | 19 | 20 | 21 |
+      | 10 | 15 | 19 | 22 | 23 | 24 |
+      | 11 | 16 | 20 | 23 | 25 | 26 |
+      | 12 | 17 | 21 | 24 | 26 | 27 |
+      AE = sqrt( [0] / [28] )
+      count = [28]
+      */
+
+      for (let i = 1; i <= 6; i++)
+      {
+        _b[i - 1] = outputReductionData[i];
+      }
+
+      var shift = 7;
+      for (let i = 0; i < 6; ++i)
+      {
+        for (let j = i; j < 6; ++j)
+        {
+          let value = outputReductionData[shift++];
+
+          _A[j * 6 + i] = _A[i * 6 + j] = value;
+        }
+      }
+
+      _icpData.AE = sqrt(outputReductionData[0] / outputReductionData[28]);
+      _icpData.icpCount = outputReductionData[28];
+    }
+
+
+    _reduce() {
+      const gl = this.gl;
+
+      gl.useProgram(p2pReduceProg);
+
+      // buffers
+      gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
+      gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboReductionOutput);
+
+
+      gl.dispatchCompute(8, 1, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    }
+
+    _track(_T, _level) {
+      const gl = this.gl;
+
+      gl.useProgram(p2pTrackProg);
+
+      // buffers
+      gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
+      // uniforms 
+      //uniform mat4 T;
+  //uniform mat4 invT;
+  //uniform float distThresh;
+  //uniform float normThresh;
+  //uniform int mip;
+  //uniform vec4 cam;
+      // textures
+      gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(2, gl.refVertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(3, gl.refNormal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(4, gl.render_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8UI);
+
+      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    }
+
+    _raycastVolume() {
+      const gl = this.gl;
+      gl.useProgram(raycastProg);
+
+      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_ONLY, gl.R32UI);
+      gl.bindImageTexture(1, gl.refVertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(2, gl.refNormal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
+      
+      var view = glMatrix.mat4.create();
+      glMatrix.mat4.mul(view, pose, invK);
+
+      let dMin = -1.0 / 20.0; // 1.0 is volume dimensions
+      let dMax = 1.0 / 10.0;
+
+      let step = 1.0 / 128.0;
+
+      gl.uniformMatrix4fv(gl.getUniformLocation(raycastProg, "view"), false, view);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "step"), step);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "largeStep"), 0.5 * 0.75);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "nearPlane"), 0.1);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "farPlane"), 3.0);
+      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volDim"), [128, 128, 128]);
+      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volSize"), [1, 1, 1]);
+
+      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    }
+    _generateVertNorms() {
+      const gl = this.gl;
+
+      gl.useProgram(depthToVertProg);
+      gl.bindImageTexture(0, gl.depth_texture, 0, false, 0, gl.READ_ONLY, gl.R32F)
+      gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F)
+
+      // bind uniforms
+
+      gl.uniformMatrix4fv(gl.getUniformLocation(depthToVertProg, "invK"), false, invK);
+      gl.uniform1f(gl.getUniformLocation(depthToVertProg, "minDepth"), 0.1);
+      gl.uniform1f(gl.getUniformLocation(depthToVertProg, "maxDepth"), 1.0);
+      gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "bottomLeft"), [0, 0]);
+      gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "topRight"), [640, 480]);
+
+      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+      gl.useProgram(vertToNormProg);
+      gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F)
+      gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F)
+
+      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    }
+
+    _calcPose() {
+      const gl = this.gl;
+
+      this._generateVertNorms();
+      this._raycastVolume();
+      
+
+      
+
+      var T = glMatrix.mat4.create();
+      var level = 0;
+
+      var A = new Float32Array(6);
+      var b = new Float32Array(6);
+      var result = new Float32Array(6);
+      var icpData = {AE:0.0, icpCount:0};
+
+      for (let i = 0; i < 6; i++)
+      {
+        A[i] = new Float32Array(6);
+      }
+
+      for (let i = 0; i < 5; i++)
+      {
+        var delta = glMatrix.mat4.create();
+
+        // this._track(T, level);
+        // this._reduce();
+        // this._getReduction(A, b, icpData);
+        // this._solve(A, b, result);
+        // this._resultToMatrix(result, delta);
+
+        // T = delta * T;
+      }
+
+      this._integrateVolume();
+
+    }
+
+
+    _frameLoop() {
+      const gl = this.gl;
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
+
+      if (this.frameAvailable) {
+        // Upload the video frame to texture.
+		    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 640, 480, gl.RED, gl.FLOAT, this.video);
+
+
+      }
+
+      this._calcPose();
+
+
+
+		  gl.useProgram(renderProgram);
+
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.normal_texture);
+      
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
+      gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+      if (!this.paused)
+        window.requestAnimationFrame(this._frameLoop);
+    }
+
+    pause() {
+      this.paused = true;
+    }
+
+    play() {
+      this.paused = false;
+      window.requestAnimationFrame(this._frameLoop);
+    }
+
+
+
+
+
+    // Creates WebGL/WebGL2 context used to upload depth video to texture,
+    // read the pixels to Float buffer and optionElally render the texture.
+    _configureGLContext() {
+      const canvas = this.shadowRoot.getElementById("canvasGL");
+      const gl = canvas.getContext('webgl2-compute', {antialias: false});
+      if (gl) {
+        // The extension tells us if we can use single component R32F texture format.
+        gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
+      } else {
+        gl = canvas.getContext("webgl");
+        gl.getExtension("OES_texture_float");
+      }
+
+
+  // ComputeShader source
+  // language=GLSL
+  const depthToVertSource = `#version 310 es
+  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+  layout (r32f, binding = 0) uniform readonly highp image2D depthImage;
+  layout (rgba32f, binding = 1) uniform writeonly highp image2D vertexImage;
+
+  uniform mat4 invK;
+  uniform float minDepth;
+  uniform float maxDepth;
+
+  uniform vec2 bottomLeft;
+  uniform vec2 topRight;
+
+  void main() {
+    ivec2 u = ivec2(gl_GlobalInvocationID.xy);
+
+    float z = imageLoad(depthImage, u).x * 6.55350f; // this has been manually set and depends on the depth scale set by the realsense sdk, its the short->float scaled by depth scale, seems to work
+
+    if (z >= minDepth && z <= maxDepth
+        && u.x > int(bottomLeft.x) && u.y > int(bottomLeft.y)
+        && u.x < int(topRight.x) && u.y < int(topRight.y))
+        {
+          vec3 v = z * mat3(invK) * vec3(u, 1.0f);
+          imageStore(vertexImage, u, vec4(v, 1.0f));
+        }
+        else
+        {
+          imageStore(vertexImage, u, vec4(0.0f));
+        }
+  }
+  `;
+
+  // create WebGLShader for ComputeShader
+  const depthToVertShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(depthToVertShader, depthToVertSource);
+  gl.compileShader(depthToVertShader);
+  if (!gl.getShaderParameter(depthToVertShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(depthToVertShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  depthToVertProg = gl.createProgram();
+  gl.attachShader(depthToVertProg, depthToVertShader);
+  gl.linkProgram(depthToVertProg);
+  if (!gl.getProgramParameter(depthToVertProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(depthToVertProg));
+    return;
+  }
+
+
+      // ComputeShader source
+  // language=GLSL
+  const vertToNormSource = `#version 310 es
+  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+  layout (rgba32f, binding = 0) uniform readonly highp image2D vertexImage;
+  layout (rgba32f, binding = 1) uniform writeonly highp image2D normalImage;
+
+  void main() {
+    ivec2 u = ivec2(gl_GlobalInvocationID.xy);
+    
+    vec4 vert0 = imageLoad(vertexImage, u - ivec2(1, 0));
+    vec4 vert1 = imageLoad(vertexImage, u + ivec2(1, 0));
+    vec4 vert2 = imageLoad(vertexImage, u - ivec2(0, 1));
+    vec4 vert3 = imageLoad(vertexImage, u + ivec2(0, 1));
+    vec4 vert4 = imageLoad(vertexImage, u);
+
+    if (vert0.w > 0.0 && vert1.w > 0.0 && vert2.w > 0.0  && vert3.w > 0.0 && vert4.w > 0.0)
+    {
+      vec3 vecX = normalize(vert1.xyz - vert0.xyz);
+      vec3 vecY = normalize(vert3.xyz - vert2.xyz);
+
+      imageStore(normalImage, u, vec4(normalize(cross(vecY, vecX)), 0.0));
+    }
+    else
+    {
+      imageStore(normalImage, u, vec4(0.0));
+    }
+  }
+  `;
+
+
+  // create WebGLShader for ComputeShader
+  const vertToNormShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(vertToNormShader, vertToNormSource);
+  gl.compileShader(vertToNormShader);
+  if (!gl.getShaderParameter(vertToNormShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(vertToNormShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  vertToNormProg = gl.createProgram();
+  gl.attachShader(vertToNormProg, vertToNormShader);
+  gl.linkProgram(vertToNormProg);
+  if (!gl.getProgramParameter(vertToNormProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(vertToNormProg));
+    return;
+  }
+
+  const integrateSource = `#version 310 es
+  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+  layout (r32ui, binding = 0) uniform highp uimage3D volumeData;
+
+  layout (rgba32f, binding = 1) uniform readonly highp image2D vertexImage;
+  layout (rgba32f, binding = 2) uniform readonly highp image2D trackImage;
+
+  uniform int integrateFlag;
+  uniform int resetFlag;
+
+  uniform mat4 invT;
+  uniform mat4 K;
+
+  uniform int p2p;
+  uniform int p2v;
+
+  uniform float maxWeight;
+
+  uniform float volDim; // length in meters FLOAT!!!!
+  uniform float volSize; // voxel grid size
+
+  // to store in es3.1 compatible read/write image formats, we need to pack the floats into a single r32i image
+  // 
+  vec2 convertIntToVec2(uint inData)
+  {
+    vec2 outData;
+    
+    uint tX = uint(inData & 4294901760u) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
+	  uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
+
+    outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
+    outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
+
+    return outData;
+  }
+
+  uint convertVec2ToInt(vec2 inData)
+  {
+    inData.x = min(65535.0f, 1000.0f * inData.x);
+    inData.y = min(65535.0f, 10.0f * inData.y);
+
+    uint outData;
+	  outData = uint(inData.x) << 16u | uint(inData.y);
+    return outData;
+  }
+
+
+  vec3 projectPointImage(vec3 p, float fx, float fy, float cx, float cy)
+  {
+      return vec3(((fx * p.x) / p.z) + cx,
+                  ((fy * p.y) / p.z) + cy,
+                  p.z);
+  }
+
+  vec3 getVolumePosition(uvec3 p)
+  {
+      return vec3((float(p.x) + 0.5f) * volDim / volSize, (float(p.y) + 0.5f) * volDim / volSize, (float(p.z) + 0.5f) * volDim / volSize);
+  }
+
+  vec2 getSDF(uvec3 pos)
+  {
+      uint dataIn = imageLoad(volumeData, ivec3(pos)).x;
+
+      return convertIntToVec2(dataIn);
+
+  }
+
+  bool inFrustrum(in vec4 pClip)
+  {
+      return abs(pClip.x) < pClip.w &&
+            abs(pClip.y) < pClip.w; 
+  }
+
+  void integrate()
+  {
+    int numberOfCameras = 1;
+
+    ivec2 depthSize = ivec2(imageSize(vertexImage).xy);
+    uvec3 pix = gl_GlobalInvocationID.xyz;
+
+    float diff[4]; // max number of cameras on one system
+
+    vec4 track[4];
+    int bestTrack;
+
+    for (pix.z = 0u; pix.z < uint(volSize); pix.z++)
+    {
+      for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
+      {
+      // get world position of centre of voxel 
+        vec3 worldPos = vec3(invT * vec4(getVolumePosition(pix), 1.0f)).xyz;
+        vec3 pixel = projectPointImage(worldPos, K[0][0], K[1][1], K[2][0], K[2][1]);
+        ivec2 px = ivec2(pixel.x + 0.5f, pixel.y + 0.5f); // for rounding
+
+        //imageStore(volumeData, ivec3(pix), vec4(dMin, dMax, 0, 0));
+        // if we dont check if we hit the image here and just assume that if pixel is out of bounds the resultant texture read will be zero
+        if (px.x < 0 || px.x > depthSize.x - 1 || px.y < 0 || px.y > depthSize.y - 1)
+        {
+          diff[cameraDevice] = -10000.0f;
+          continue;
+        }
+
+        track[cameraDevice] = imageLoad(trackImage, px);
+
+        vec4 depthPoint = imageLoad(vertexImage, px);
+
+        if (depthPoint.z <= 0.0f)
+        {
+          diff[cameraDevice] = -10000.0f;
+          continue;
+        }
+
+        // if we get here, then the voxel is seen by this cameraDevice
+        // determin best cameraDevice
+        vec3 shiftVec = worldPos - depthPoint.xyz;
+        float tdiff = length(shiftVec);
+        diff[cameraDevice] = shiftVec.z < 0.0 ? tdiff : -tdiff;
+
+          }
+          float finalDiff = 10000.0f;
+          float validCameras = 0.0f;
+          for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
+          {
+            if (diff[cameraDevice] != 10000.0f)
+            {
+              if (abs(diff[cameraDevice]) < abs(finalDiff))
+              {
+                bestTrack = cameraDevice;
+                finalDiff = diff[cameraDevice];
+              }
+            }
+          }
+
+          float ctfo = 0.1f;
+          if (track[bestTrack] == vec4(0.5f, 0.5f, 0.5f, 1.0 ))
+          {
+              ctfo = 0.1f;
+          }
+          else if (track[bestTrack] == vec4(1.0f, 1.0f, 0.0f, 1.0))
+          {
+              ctfo = 0.001f;
+          }
+          else if (track[bestTrack] == vec4(1.0f, 0.0f, 0.0f, 1.0))
+          {
+              ctfo = 0.001f;
+          }
+
+          float dMin = -volDim / 20.0f;
+          float dMax = volDim / 10.0f;
+          // if diff within TSDF range, write to volume
+          if (finalDiff < dMax && finalDiff > dMin)
+          {
+            vec2 data = getSDF(pix);
+            float weightedDistance = 0.0f;
+            if (p2p == 1)
+            {
+              weightedDistance = (data.y * data.x + finalDiff) / (data.y + 1.0f);
+            }
+            else if (p2v == 1)
+            {
+              weightedDistance = (data.y * data.x + ctfo * finalDiff) / (data.y + ctfo);
+            }
+            if (weightedDistance < dMax)
+            {
+            data.x = clamp(weightedDistance, dMin, dMax);
+            data.y = min(data.y + 1.0f, (maxWeight));
+          }
+          else
+          {
+            data.x = 0.0f;
+            data.y = 0.0f;
+          }
+        uint dataOut = convertVec2ToInt(data);  
+        imageStore(volumeData, ivec3(pix), uvec4(dataOut, 0, 0, 0));
+      }
+      else
+      {
+      //pix.z += 50; // need to be clever here, but this could work nicely woudl like to jump to just before the 
+      //imageStore(volumeData, ivec3(pix), vec4(0.0f));
+      }     
+    }
+  }
+
+  void resetVolume()
+  {
+    uvec2 pix = gl_GlobalInvocationID.xy;
+    if (pix.x < uint(volSize) && pix.y < uint(volSize))
+    {
+      for (int zDep = 0; zDep < int(volSize); zDep++)
+      {
+        imageStore(volumeData, ivec3(pix.x, pix.y, zDep), uvec4(0));
+      }
+    }
+  }
+
+  void main()
+  {
+    if (integrateFlag == 1)
+    {
+      integrate();
+    }
+    else if (resetFlag == 1)
+    {
+      resetVolume();
+    }
+  }
+  `;
+
+  // create WebGLShader for ComputeShader
+  const integrateShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(integrateShader, integrateSource);
+  gl.compileShader(integrateShader);
+  if (!gl.getShaderParameter(integrateShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(integrateShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  integrateProg = gl.createProgram();
+  gl.attachShader(integrateProg, integrateShader);
+  gl.linkProgram(integrateProg);
+  if (!gl.getProgramParameter(integrateProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(integrateProg));
+    return;
+  }
+
+      // ComputeShader source
+  // language=GLSL
+  const raycastSource = `#version 310 es
+  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+  layout (r32ui, binding = 0) uniform readonly highp uimage3D volumeData;
+  layout (rgba32f, binding = 1) uniform writeonly highp image2D refVertex;
+  layout (rgba32f, binding = 2) uniform writeonly highp image2D refNormal;
+
+  uniform mat4 view;
+
+  uniform float nearPlane;
+  uniform float farPlane;
+  uniform float step;
+  uniform float largeStep;
+  uniform vec3 volDim; // VEC3 !!!
+  uniform vec3 volSize;
+
+  vec2 convertIntToVec2(uint inData)
+  {
+    vec2 outData;
+    
+    uint tX = uint(inData & 4294901760u) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
+	  uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
+
+    outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
+    outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
+
+    return outData;
+  }
+
+  uint convertVec2ToInt(vec2 inData)
+  {
+    inData.x = min(65535.0f, 1000.0f * inData.x);
+    inData.y = min(65535.0f, 10.0f * inData.y);
+
+    uint outData;
+	  outData = uint(inData.x) << 16u | uint(inData.y);
+    return outData;
+  }
+
+  float vs(uvec3 pos)
+  {  
+    return convertIntToVec2(imageLoad(volumeData, ivec3(pos)).x).x;
+  }
+
+  float interpVol(vec3 pos)
+  {
+    vec3 scaled_pos = vec3((pos.x * volSize.x / volDim.x) - 0.5f, (pos.y * volSize.y / volDim.y) - 0.5f, (pos.z * volSize.z / volDim.z) - 0.5f);
+    ivec3 base = ivec3(floor(scaled_pos));
+    vec3 factor = fract(scaled_pos);
+    ivec3 lower = max(base, ivec3(0));
+    ivec3 upper = min(base + ivec3(1), ivec3(volSize) - ivec3(1));
+    return (
+          ((vs(uvec3(lower.x, lower.y, lower.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, lower.y, lower.z)) * (factor.x)) * (1.0f - factor.y)
+         + (vs(uvec3(lower.x, upper.y, lower.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, lower.z)) * (factor.x)) * (factor.y)) * (1.0f - factor.z)
+        + ((vs(uvec3(lower.x, lower.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, lower.y, upper.z)) * (factor.x)) * (1.0f - factor.y)
+         + (vs(uvec3(lower.x, upper.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, upper.z)) * (factor.x)) * (factor.y)) * (factor.z)
+        ) * 0.00003051944088f;
+  }
+
+  vec4 raycast(uvec2 pos, int camera)
+  {
+    vec3 origin = vec3(view[3][0], view[3][1], view[3][2]);
+
+    vec3 direction = vec3((view * vec4(pos.x, pos.y, 1.0f, 0.0f)).xyz);
+
+      // intersect ray with a box
+      // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
+      // compute intersection of ray with all six bbox planes
+    vec3 invR = vec3(1.0f, 1.0f, 1.0f) / direction;
+    vec3 tbot = -1.0f * invR * origin;
+    vec3 ttop = invR * (volDim - origin);
+    // re-order intersections to find smallest and largest on each axis
+    vec3 tmin = min(ttop, tbot);
+    vec3 tmax = max(ttop, tbot);
+    // find the largest tmin and the smallest tmax
+    float largest_tmin = max(max(tmin.x, tmin.y), max(tmin.x, tmin.z));
+    float smallest_tmax = min(min(tmax.x, tmax.y), min(tmax.x, tmax.z));
+    // check against near and far plane
+    float tnear = max(largest_tmin, nearPlane);
+    float tfar = min(smallest_tmax, farPlane);
+
+    if (tnear < tfar)
+    {
+      // first walk with largesteps until we found a hit
+      float t = tnear;
+      float stepsize = largeStep;
+
+      bool isInterp;
+      float f_t = interpVol(vec3(origin + direction * t));
+      float f_tt = 0.0f;
+      if (f_t >= 0.0f)
+      {  // ups, if we were already in it, then don't render anything here
+        for (; t < tfar; t += stepsize)
+        {
+          f_tt = interpVol(vec3(origin + direction * t));
+          if (f_tt < 0.0f) // got it, jump out of inner loop
+          {
+            break; // 
+          }
+          if (f_tt < 0.8f)
+          {
+            stepsize = step;
+          }
+          f_t = f_tt;
+        }
+        if (f_tt < 0.0f) // got it, calculate accurate intersection
+        {
+          t = t + stepsize * f_tt / (f_t - f_tt);
+          return vec4(origin + direction * t, t);
+        }
+      }
+    }
+    return vec4(0.0f, 0.0f, 0.0f, 0.0f);
+  }
+
+  vec3 getGradient(vec4 hit)
+  {
+    vec3 scaled_pos = vec3((hit.x * volSize.x / volDim.x) - 0.5f, (hit.y * volSize.y / volDim.y) - 0.5f, (hit.z * volSize.z / volDim.z) - 0.5f);
+    ivec3 baseVal = ivec3(floor(scaled_pos));
+    vec3 factor = fract(scaled_pos);
+    ivec3 lower_lower = max(baseVal - ivec3(1), ivec3(0));
+    ivec3 lower_upper = max(baseVal, ivec3(0));
+    ivec3 upper_lower = min(baseVal + ivec3(1), ivec3(volSize) - ivec3(1));
+    ivec3 upper_upper = min(baseVal + ivec3(2), ivec3(volSize) - ivec3(1));
+    ivec3 lower = lower_upper;
+    ivec3 upper = upper_lower;
+
+    vec3 gradient;
+
+    gradient.x =
+              (((vs(uvec3(upper_lower.x, lower.y, lower.z)) - vs(uvec3(lower_lower.x, lower.y, lower.z))) * (1.0f - factor.x)
+            + (vs(uvec3(upper_upper.x, lower.y, lower.z)) - vs(uvec3(lower_upper.x, lower.y, lower.z))) * factor.x) * (1.0f - factor.y)
+            + ((vs(uvec3(upper_lower.x, upper.y, lower.z)) - vs(uvec3(lower_lower.x, upper.y, lower.z))) * (1.0f - factor.x)
+            + (vs(uvec3(upper_upper.x, upper.y, lower.z)) - vs(uvec3(lower_upper.x, upper.y, lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
+            + (((vs(uvec3(upper_lower.x, lower.y, upper.z)) - vs(uvec3(lower_lower.x, lower.y, upper.z))) * (1.0f - factor.x)
+            + (vs(uvec3(upper_upper.x, lower.y, upper.z)) - vs(uvec3(lower_upper.x, lower.y, upper.z))) * factor.x) * (1.0f - factor.y)
+            + ((vs(uvec3(upper_lower.x, upper.y, upper.z)) - vs(uvec3(lower_lower.x, upper.y, upper.z))) * (1.0f - factor.x)
+            + (vs(uvec3(upper_upper.x, upper.y, upper.z)) - vs(uvec3(lower_upper.x, upper.y, upper.z))) * factor.x) * factor.y) * factor.z;
+
+    gradient.y =
+          (((vs(uvec3(lower.x, upper_lower.y, lower.z)) - vs(uvec3(lower.x, lower_lower.y, lower.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper_lower.y, lower.z)) - vs(uvec3(upper.x, lower_lower.y, lower.z))) * factor.x) * (1.0f - factor.y)
+        + ((vs(uvec3(lower.x, upper_upper.y, lower.z)) - vs(uvec3(lower.x, lower_upper.y, lower.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper_upper.y, lower.z)) - vs(uvec3(upper.x, lower_upper.y, lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
+        + (((vs(uvec3(lower.x, upper_lower.y, upper.z)) - vs(uvec3(lower.x, lower_lower.y, upper.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper_lower.y, upper.z)) - vs(uvec3(upper.x, lower_lower.y, upper.z))) * factor.x) * (1.0f - factor.y)
+        + ((vs(uvec3(lower.x, upper_upper.y, upper.z)) - vs(uvec3(lower.x, lower_upper.y, upper.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper_upper.y, upper.z)) - vs(uvec3(upper.x, lower_upper.y, upper.z))) * factor.x) * factor.y) * factor.z;
+
+    gradient.z =
+          (((vs(uvec3(lower.x, lower.y, upper_lower.z)) - vs(uvec3(lower.x, lower.y, lower_lower.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, lower.y, upper_lower.z)) - vs(uvec3(upper.x, lower.y, lower_lower.z))) * factor.x) * (1.0f - factor.y)
+        + ((vs(uvec3(lower.x, upper.y, upper_lower.z)) - vs(uvec3(lower.x, upper.y, lower_lower.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper.y, upper_lower.z)) - vs(uvec3(upper.x, upper.y, lower_lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
+        + (((vs(uvec3(lower.x, lower.y, upper_upper.z)) - vs(uvec3(lower.x, lower.y, lower_upper.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, lower.y, upper_upper.z)) - vs(uvec3(upper.x, lower.y, lower_upper.z))) * factor.x) * (1.0f - factor.y)
+        + ((vs(uvec3(lower.x, upper.y, upper_upper.z)) - vs(uvec3(lower.x, upper.y, lower_upper.z))) * (1.0f - factor.x)
+        + (vs(uvec3(upper.x, upper.y, upper_upper.z)) - vs(uvec3(upper.x, upper.y, lower_upper.z))) * factor.x) * factor.y) * factor.z;
+
+    return gradient * vec3(volDim.x / volSize.x, volDim.y / volSize.y, volDim.z / volSize.z) * (0.5f * 0.00003051944088f);
+  }
+
+  void main()
+  {
+    int numberOfCameras = 1;
+    uvec2 pix = gl_GlobalInvocationID.xy;
+    for (int camera = 0; camera < numberOfCameras; camera++)
+    {
+      vec4 hit = raycast(pix, camera);
+      if (hit.w > 0.0f)
+      {
+        imageStore(refVertex, ivec2(pix), vec4(hit.xyz, 1.0f));
+        vec3 surfNorm = getGradient(hit);
+        if (length(surfNorm) == 0.0f)
+        {
+          imageStore(refNormal, ivec2(pix), vec4(0.0f));
+        }
+        else
+        {
+          imageStore(refNormal, ivec2(pix), vec4(normalize(surfNorm), 1.0f));
+        }
+      }
+      else
+      {
+        imageStore(refVertex, ivec2(pix), vec4(0.0f));
+        imageStore(refNormal, ivec2(pix), vec4(0.0f));
+      }
+    }
+  }
+  `;
+    // create WebGLShader for ComputeShader
+    const raycastShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(raycastShader, raycastSource);
+  gl.compileShader(raycastShader);
+  if (!gl.getShaderParameter(raycastShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(raycastShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  raycastProg = gl.createProgram();
+  gl.attachShader(raycastProg, raycastShader);
+  gl.linkProgram(raycastProg);
+  if (!gl.getProgramParameter(raycastProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(raycastProg));
+    return;
+  }
+
+        // ComputeShader source
+  // language=GLSL
+  const p2pTrackSource = `#version 310 es
+  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+  layout(binding = 0, rgba32f) readonly uniform highp image2D inVertex;
+  layout(binding = 1, rgba32f) readonly uniform highp image2D inNormal;
+
+  layout(binding = 2, rgba32f) readonly uniform highp image2D refVertex;
+  layout(binding = 3, rgba32f) readonly uniform highp image2D refNormal;
+
+  layout(binding = 4, rgba8) writeonly uniform highp image2D trackImage;
+
+  uniform mat4 T;
+  uniform mat4 invT;
+  uniform float distThresh;
+  uniform float normThresh;
+  uniform int mip;
+  uniform vec4 cam;
+
+  vec3 projectPointImage(vec3 p)
+  {
+      return vec3(((cam.z * p.x) / p.z) + cam.x,
+                  ((cam.w * p.y) / p.z) + cam.y,
+                  p.z);
+  }
+
+  struct reduType
+  {
+    int result;
+    float error;
+    float J[6];
+  };
+
+  layout(std430, binding = 0) buffer TrackData
+  {
+    reduType trackOutput[];
+  };
+
+
+  void main()
+  {
+    int numberOfCameras = 1;
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imSize = imageSize(inVertex); // mipmapped sizes
+    ivec2 refSize = imageSize(refVertex); // full depth size
+
+    for (int camera = 0; camera < numberOfCameras; camera++)
+    {
+      uint offset = uint(camera * imSize.x * imSize.y) + uint((pix.y * imSize.x) + pix.x);
+      if (pix.x < imSize.x && pix.y < imSize.y)
+      {
+        vec4 normals = imageLoad(inNormal, ivec2(pix));
+        if (normals.x == 2.0f)
+        {
+          trackOutput[offset].result = -1; // does this matter since we are in a low mipmap not full size???
+          imageStore(trackImage, ivec2(pix), vec4(0, 0, 0, 0));
+        }
+        else
+        {
+          // depth vert in global space
+          vec4 projectedVertex = T * vec4(imageLoad(inVertex, ivec2(pix)).xyz, 1.0f); // CHECK ME AGAINT THE OLD CRAPPY OPMUL
+          // this depth vert in global space is then prejected back to normal depth space
+				  vec3 projPixel = projectPointImage(projectedVertex.xyz);
+          if (projPixel.x < 0.0f || int(projPixel.x) > refSize.x || projPixel.y < 0.0f || int(projPixel.y) > refSize.y)
+          {
+            trackOutput[offset].result = -2;
+            imageStore(trackImage, ivec2(pix), vec4(1.0f, 0.0f, 0.0f, 1.0f));
+          }
+          else
+          {
+				  // THIS IS NOT THE FIX!!!! THIS JUST DOES LOTS OF ITERATIONS WITHOUT TRYING TO UPDATE T, maybe, not his is probably ok, T is getting updated so projectedVertex is changing each iter
+            ivec2 refPixel = ivec2(pix.x << mip, pix.y << mip);//ivec2(projPixel.x + 0.5f, projPixel.y + 0.5f);
+            vec3 referenceNormal = imageLoad(refNormal, refPixel).xyz;
+            vec3 tmp = imageLoad(refVertex, refPixel).xyz;
+
+            if (referenceNormal.x == -2.0f)
+            {
+              trackOutput[offset].result = -3;
+              imageStore(trackImage, ivec2(pix), vec4(0, 1.0f, 0, 1.0f));
+            }
+            else
+            {
+						  vec3 refVert = imageLoad(refVertex, refPixel).xyz;
+              vec3 diff = refVert - projectedVertex.xyz;
+              vec4 currNormal = imageLoad(inNormal, ivec2(pix));
+              vec3 projectedNormal = vec3((T * vec4(currNormal.xyz, 0.0f)).xyz); // input mipmap sized pixel
+
+              if (length(diff) > distThresh)
+              {
+                trackOutput[offset].result = -4;
+                imageStore(trackImage, ivec2(pix), vec4(0, 0, 1.0f, 1.0f));
+              }
+              else if (dot(projectedNormal, referenceNormal) < normThresh)
+              {
+                trackOutput[offset].result = -5;
+                imageStore(trackImage, ivec2(pix), vec4(1.0f, 1.0f, 0, 1.0f));
+              }
+              else
+              {
+                imageStore(trackImage, ivec2(pix), vec4(0.5f, 0.5f, 0.5f, 1.0f));
+
+                trackOutput[offset].result = 1;
+                trackOutput[offset].error = dot(referenceNormal, diff);
+
+                trackOutput[offset].J[0] = referenceNormal.x;
+                trackOutput[offset].J[1] = referenceNormal.y;
+                trackOutput[offset].J[2] = referenceNormal.z;
+
+                vec3 crossProjVertRefNorm = cross(projectedVertex.xyz, referenceNormal);
+                trackOutput[offset].J[3] = crossProjVertRefNorm.x;
+                trackOutput[offset].J[4] = crossProjVertRefNorm.y;
+                trackOutput[offset].J[5] = crossProjVertRefNorm.z;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  `;
+  // create WebGLShader for ComputeShader
+  const p2pTrackShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(p2pTrackShader, p2pTrackSource);
+  gl.compileShader(p2pTrackShader);
+  if (!gl.getShaderParameter(p2pTrackShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(p2pTrackShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  p2pTrackProg = gl.createProgram();
+  gl.attachShader(p2pTrackProg, p2pTrackShader);
+  gl.linkProgram(p2pTrackProg);
+  if (!gl.getProgramParameter(p2pTrackProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(p2pTrackProg));
+    return;
+  }
+
+  // ComputeShader source
+  // language=GLSL
+  const p2pReduceSource = `#version 310 es
+  layout (local_size_x = 112, local_size_y = 1, local_size_z = 1) in;
+
+  struct reduType
+  {
+    int result;
+    float error;
+    float J[6];
+  };
+
+  layout(std430, binding = 0) buffer TrackData
+  {
+    reduType trackOutput[];
+  };
+
+  layout(std430, binding = 1) buffer OutputData
+  {
+    float outputData [];
+  };
+
+  uniform ivec2 imSize; 
+  shared float S[112][32];
+
+  void main()
+  {
+    uint sline = gl_LocalInvocationID.x; // 0 - 111
+
+    float sums[32];
+    for (int i = 0; i < 32; ++i) 
+    { 
+        sums[i] = 0.0f;
+    }
+
+    for (uint y = gl_WorkGroupID.x; y < uint(imSize.y); y += gl_NumWorkGroups.x)
+    {
+      for (uint x = sline; x < uint(imSize.x); x += gl_WorkGroupSize.x)
+      {
+        reduType row = trackOutput[(y * uint(imSize.x)) + x];
+        if (row.result < 1)
+        {
+          if (row.result == -4)
+          {
+            sums[29]++;
+          }
+          if (row.result == -5)
+          {
+            sums[30]++;
+          }
+          if (row.result > -4)
+          {
+            sums[31]++;
+          }
+          continue;
+        }
+
+        // Error part
+        sums[0] += row.error * row.error;
+
+        // JTe part
+        for (int i = 0; i < 6; ++i)
+        {
+          sums[i + 1] += row.error * row.J[i];
+        }
+
+        // JTJ part
+        sums[7] += row.J[0] * row.J[0];
+        sums[8] += row.J[0] * row.J[1];
+        sums[9] += row.J[0] * row.J[2];
+        sums[10] += row.J[0] * row.J[3];
+        sums[11] += row.J[0] * row.J[4];
+        sums[12] += row.J[0] * row.J[5];
+
+        sums[13] += row.J[1] * row.J[1];
+        sums[14] += row.J[1] * row.J[2];
+        sums[15] += row.J[1] * row.J[3];
+        sums[16] += row.J[1] * row.J[4];
+        sums[17] += row.J[1] * row.J[5];
+
+        sums[18] += row.J[2] * row.J[2];
+        sums[19] += row.J[2] * row.J[3];
+        sums[20] += row.J[2] * row.J[4];
+        sums[21] += row.J[2] * row.J[5];
+
+        sums[22] += row.J[3] * row.J[3];
+        sums[23] += row.J[3] * row.J[4];
+        sums[24] += row.J[3] * row.J[5];
+
+        sums[25] += row.J[4] * row.J[4];
+        sums[26] += row.J[4] * row.J[5];
+
+        sums[27] += row.J[5] * row.J[5];
+
+        sums[28] += 1.0f;
+        }
+      }
+
+      for (int i = 0; i < 32; ++i)
+      {
+        S[sline][i] = sums[i];
+      }
+     
+      barrier(); // wait for threads to finish
+
+      if (sline < 32u)
+      {
+        for(uint i = 1u; i < gl_WorkGroupSize.x; ++i)
+        {
+          S[0][sline] += S[i][sline];
+        }
+      outputData[sline + gl_WorkGroupID.x * 32u] = S[0][sline];
+    }
+  }
+  `;
+
+    // create WebGLShader for ComputeShader
+    const p2pReduceShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(p2pReduceShader, p2pReduceSource);
+  gl.compileShader(p2pReduceShader);
+  if (!gl.getShaderParameter(p2pReduceShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(p2pReduceShader));
+    return;
+  }
+  
+  // create WebGLProgram for ComputeShader
+  p2pReduceProg = gl.createProgram();
+  gl.attachShader(p2pReduceProg, p2pReduceShader);
+  gl.linkProgram(p2pReduceProg);
+  if (!gl.getProgramParameter(p2pReduceProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(p2pReduceProg));
+    return;
+  }
+
+  
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  // ComputeShader source
+	  // language=GLSL
+	  var vertexShaderSource = `#version 310 es
+		  in vec2 v;
+      out vec2 t;
+
+      void main(){
+        gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0, 1);
+        t = v;
+      }
+	  `;
+  
+      // Shaders and program are needed only if rendering depth texture.
+      var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vertex_shader, vertexShaderSource);
+      gl.compileShader(vertex_shader);
+
+	if (!gl.getShaderParameter(vertex_shader, gl.COMPILE_STATUS)) {
+		console.log(gl.getShaderInfoLog(vertex_shader));
+		return;
+	}
+  
+      var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
+	  
+	  
+	  var fragmentShaderSource = `#version 310 es
+        precision mediump float;
+        uniform sampler2D s;
+        in vec2 t;
+		    out vec4 outColor;
+
+        void main(){
+          vec4 tex = texture(s, t);
+          outColor = vec4(abs(tex.xyz), 1.0);
+        }`
+	  
+      gl.shaderSource(pixel_shader, fragmentShaderSource);
+      gl.compileShader(pixel_shader);
+	  
+	    if (!gl.getShaderParameter(pixel_shader, gl.COMPILE_STATUS)) {
+		console.log(gl.getShaderInfoLog(pixel_shader));
+		return;
+		}
+  
+
+  
+  
+  
+
+      renderProgram  = gl.createProgram();
+      gl.attachShader(renderProgram, vertex_shader);
+      gl.attachShader(renderProgram, pixel_shader);
+      gl.linkProgram(renderProgram);
+      gl.useProgram(renderProgram);
+
+      var vertex_location = gl.getAttribLocation(renderProgram, "v");
+      gl.enableVertexAttribArray(vertex_location);
+      gl.uniform1i(gl.getUniformLocation(renderProgram, "s"), 0);
+
+      var vertex_buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,1,1,0,1]), gl.STATIC_DRAW);
+
+      var index_buffer= gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
+
+
+      let arr = new Float32Array(640 * 480 * 8);// width * height * sizeof reduType struct
+      var ssboReduction = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReduction);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arr, gl.DYNAMIC_COPY);
+
+      let arrOutput = new Float32Array(32 * 8);
+      var ssboReductionOutput = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionOutput);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arr, gl.DYNAMIC_COPY);
+
+
+
+      var depth_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, depth_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      var volume_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_3D, volume_texture);
+	    gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R32UI, 128, 128, 128);
+
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+
+      var render_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, render_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8UI, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      // Framebuffer for reading back the texture.
+      var framebuffer = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, render_texture, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      var vertex_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, vertex_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      var normal_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, normal_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      var refVertex_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, refVertex_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      var refNormal_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, refNormal_texture);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      gl.vertex_buffer = vertex_buffer;
+      gl.vertex_location = vertex_location;
+      gl.index_buffer = index_buffer;
+
+      gl.ssboReduction = ssboReduction;
+      gl.ssboReductionOutput = ssboReductionOutput;
+
+      gl.depth_texture = depth_texture;
+      gl.vertex_texture = vertex_texture;
+      gl.normal_texture = normal_texture;
+      gl.volume_texture = volume_texture;
+      gl.refVertex_texture = refVertex_texture;
+      gl.refNormal_texture = refNormal_texture;
+
+
+      gl.framebuffer = framebuffer;
+
+      return gl;
+    }
+
+    async loadStream(deviceId) {
+      stopVideo(videos.depth);
+      stopVideo(videos.color);
+
+      // If the item in drop-down list is selected, use it.
+      const getUserMedia = () => {
+        // add ?allow=all to URL to allow listing all devices (incl. those not supporting depth).
+        if (!deviceId && (new URL(window.location)).searchParams.get("allow") !== "all") {
+          return DepthCamera.getDepthStream();
+        }
+
+        const constraints = {
+          video: {
+            deviceId: deviceId ? { exact: deviceId } : {}
+          }
+        }
+
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }
+
+      try {
+        const stream = await getUserMedia();
+        this.video.srcObject = stream;
+        videos.depth = this.video;
+
+        // Chrome, starting with version 59, implements getSettings() API.
+        const track = stream.getVideoTracks()[0];
+        if (track.getSettings) {
+          this.depthDeviceId = track.getSettings().deviceId;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  });
+
+  function populateSelectElement(devices) {
+    const selectEl = document.querySelector('#selectVideoDevice');
+    const videoStreamEl = document.querySelector('video-stream');
+
+    let selected = selectEl.value;
+
+    while (selectEl.firstChild) {
+      selectEl.removeChild(selectEl.firstChild);
+    }
+
+    let selectedDeviceStillExists = false;
+    for (let i = 0; i < devices.length; ++i) {
+      const info = devices[i];
+      if (info.kind !== 'videoinput') {
+        continue;
+      }
+
+      const optionEl = document.createElement('option');
+      optionEl.value = info.deviceId;
+      optionEl.text = info.label || 'camera ' + (selectEl.length + 1);
+      selectEl.appendChild(optionEl);
+
+      if (optionEl.value === selected) {
+        selectedDeviceStillExists = true;
+      }
+    }
+
+    if (selectedDeviceStillExists) {
+      selectEl.value = selected;
+    } else if (!selected) {
+      // If no other device is selected, set the initial selection to depth device.
+      if (videoStreamEl.depthDeviceId) {
+        selectEl.value = videoStreamEl.depthDeviceId;
+      }
+    }
+
+
+  }
+
+  function onLoad() {
+    const videoStreamEl = document.querySelector('video-stream');
+    const selectEl = document.querySelector('#selectVideoDevice');
+
+    selectEl.onchange = async event => {
+      selectEl.disabled = true;
+      const deviceId = event.target.value;
+
+      await videoStreamEl.loadStream(deviceId);
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      populateSelectElement(devices);
+      if (selectedtab.value != "basic") {
+        // It is on by default; stop rendering it if not visible.
+        stopBasicTab();
+      }
+      window[selectedtab.dataset.ontabon]();
+
+      selectEl.disabled = false;
+    };
+    selectEl.dispatchEvent(new Event('change', { 'bubbles': true }))
+  }
+</script>
+</html>

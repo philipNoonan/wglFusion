@@ -52,10 +52,11 @@
         video: {
           // videoKind: {exact: "depth"}, R200 related hack: prefer
           // depth (width = 628) to IR (width = 641) stream.
-          width: {ideal: 628},
+          width: 848,
+          height: 480,
 
           // SR300 depth camera enables capture at 110 frames per second.
-          frameRate: {ideal: 110},
+          frameRate: {ideal: 90},
         }
       }
 
@@ -67,26 +68,26 @@
           "No RealSense camera connected.");
       }
 
-      if (track.getSettings && track.getSettings().frameRate > 60) {
-        // After Chrome 59, returned track is scaled to 628 and frameCount 110.
-        // We got the deviceId, so we the deviceId to select the stream with
-        // default resolution and frameRate.
-        track.stop();
+      // if (track.getSettings && track.getSettings().frameRate > 60) {
+      //   // After Chrome 59, returned track is scaled to 628 and frameCount 110.
+      //   // We got the deviceId, so we the deviceId to select the stream with
+      //   // default resolution and frameRate.
+      //   track.stop();
 
-        const constraints = {
-          audio: false,
-          video: {
-            deviceId: {exact: track.getSettings().deviceId},
-            frameRate: {exact: 60}
-          }
-        }
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      }
+      //   const constraints = {
+      //     audio: false,
+      //     video: {
+      //       deviceId: {exact: track.getSettings().deviceId},
+      //       frameRate: {exact: 60}
+      //     }
+      //   }
+      //   stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // }
       return stream;
     }
 
   // Call the method after getting depth_stream using getDepthStream.
-  static async getColorStreamForDepthStream(depthStream, w = 640, h = 480) {
+  static async getColorStreamForDepthStream(depthStream, w = 848, h = 480) {
     // To get color stream from the same physical device providing the depth
     // stream, we will use groupId, once it is implemented:
     // See https://crbug.com/627793

@@ -159,7 +159,7 @@
   </style>
   <div>
     <label>WebGL2.0-Compute Powered ICP wglFusion:</label>
-    <canvas id="canvasGL" width="640" height="480"></canvas>
+    <canvas id="canvasGL" width="848" height="480"></canvas>
   </div>
 </template>
 
@@ -253,6 +253,8 @@
   var renderProgram;
 
   var pose = glMatrix.mat4.create();
+  glMatrix.mat4.translate(pose, pose, [0.5, 0.5, 0.0]);
+
   var K = glMatrix.mat4.create();
       K[0] = 613.0;
       K[5] = 613.0;
@@ -264,6 +266,11 @@
       invK[5] = 1.0 / 613.0;
       invK[8] = -320.0 / 613.0;
       invK[12] = -240.0 / 613.0;
+
+  var volDim = [1.0, 1.0, 1.0];    
+  var volSize = [128.0, 128.0, 128.0];
+
+  var imageSize = [848, 480];
 
   
   
@@ -310,8 +317,8 @@
         autoplay: true,
         loop: true,
         crossOrigin: "anonymous",
-        width: 640,
-        height: 480
+        width: imageSize[0],
+        height: imageSize[1]
       });
     }
     
@@ -327,36 +334,37 @@
 
 
 
-    _integrateVolume(iFlag, rFlag) {
+    _integrateVolume(_iFlag, _rFlag) {
       const gl = this.gl;
 
       gl.useProgram(integrateProg);
 
       var invPose = glMatrix.mat4.create();
-      glMatrix.mat4.inverse(invPose, pose);
+      glMatrix.mat4.invert(invPose, pose);
 
       gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "K"), false, K);
       gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "invT"), false, invPose);
 
-      gl.uniform1f(gl.getUniformLocation(integrateProg, "integrateFlag"), iFlag);
-      gl.uniform1f(gl.getUniformLocation(integrateProg, "resetFlag"), rFlag);
+      gl.uniform1i(gl.getUniformLocation(integrateProg, "integrateFlag"), _iFlag);
+      gl.uniform1i(gl.getUniformLocation(integrateProg, "resetFlag"), _rFlag);
 
       gl.uniform1i(gl.getUniformLocation(integrateProg, "p2p"), 1);
       gl.uniform1i(gl.getUniformLocation(integrateProg, "p2v"), 0);
 
       gl.uniform1f(gl.getUniformLocation(integrateProg, "maxWeight"), 100.0);
-      gl.uniform1f(gl.getUniformLocation(integrateProg, "volDim"), 1.0);
-      gl.uniform1f(gl.getUniformLocation(integrateProg, "volSize"), 128.0);
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "volDim"), volDim[0]);
+      gl.uniform1f(gl.getUniformLocation(integrateProg, "volSize"), volSize[0]);
 
-
-      gl.uniform4fv(gl.getUniformLocation(integrateProg, "cam"), [k[0], K[5], K[8], K[12]]);
 
       // textures
-      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_WRITE, gl.R32UI);
-      gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-      gl.bindImageTexture(2, gl.track_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_WRITE, gl.R32F);
+      gl.bindImageTexture(1, gl.volumeWeight_texture, 0, false, 0, gl.READ_WRITE, gl.R32F);
 
-      gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
+      gl.bindImageTexture(2, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindImageTexture(3, gl.render_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+      gl.bindImageTexture(4, gl.normal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
+
+      gl.dispatchCompute(volSize[0] / 32, volSize[1] / 32, 1);
       gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
     }
 
@@ -469,17 +477,22 @@
     _track(_T, _level) {
       const gl = this.gl;
 
+      var invT = glMatrix.mat4.create();
+      glMatrix.mat4.invert(invT, _T);
+
       gl.useProgram(p2pTrackProg);
 
       // buffers
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
       // uniforms 
-      //uniform mat4 T;
-  //uniform mat4 invT;
-  //uniform float distThresh;
-  //uniform float normThresh;
-  //uniform int mip;
-  //uniform vec4 cam;
+      gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "T"), false, _T);
+      gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "invT"), false, invT);
+
+      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.1);
+      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.9);
+      gl.uniform1i(gl.getUniformLocation(p2pTrackProg, "mip"), _level);
+      gl.uniform4fv(gl.getUniformLocation(raycastProg, "cam"), [K[0], K[5], K[8], K[12]]);
+
       // textures
       gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
       gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
@@ -496,30 +509,32 @@
       const gl = this.gl;
       gl.useProgram(raycastProg);
 
-      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_ONLY, gl.R32UI);
+      gl.bindImageTexture(0, gl.volume_texture, 0, false, 0, gl.READ_ONLY, gl.R32F);
       gl.bindImageTexture(1, gl.refVertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
       gl.bindImageTexture(2, gl.refNormal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
       
       var view = glMatrix.mat4.create();
       glMatrix.mat4.mul(view, pose, invK);
 
-      let dMin = -1.0 / 20.0; // 1.0 is volume dimensions
-      let dMax = 1.0 / 10.0;
+      let dMin = -volDim[0] / 20.0; // 1.0 is volume dimensions
+      let dMax = volDim[0] / 10.0;
 
-      let step = 1.0 / 128.0;
+      let step = volDim[0] / volSize[0];
 
       gl.uniformMatrix4fv(gl.getUniformLocation(raycastProg, "view"), false, view);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "step"), step);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "largeStep"), 0.5 * 0.75);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "nearPlane"), 0.1);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "farPlane"), 3.0);
-      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volDim"), [128, 128, 128]);
-      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volSize"), [1, 1, 1]);
+      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volDim"), volDim);
+      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volSize"), volSize);
 
       gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
       gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     }
+
+    
     _generateVertNorms() {
       const gl = this.gl;
 
@@ -533,7 +548,7 @@
       gl.uniform1f(gl.getUniformLocation(depthToVertProg, "minDepth"), 0.1);
       gl.uniform1f(gl.getUniformLocation(depthToVertProg, "maxDepth"), 1.0);
       gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "bottomLeft"), [0, 0]);
-      gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "topRight"), [640, 480]);
+      gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "topRight"), imageSize);
 
       gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
       gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -574,16 +589,18 @@
       {
         var delta = glMatrix.mat4.create();
 
-        // this._track(T, level);
-        // this._reduce();
-        // this._getReduction(A, b, icpData);
+        this._track(T, level);
+        //this._reduce();
+        //this._getReduction(A, b, icpData);
         // this._solve(A, b, result);
         // this._resultToMatrix(result, delta);
 
         // T = delta * T;
       }
 
-      this._integrateVolume();
+      var iFlag = 1;
+      var rFlag = 0;
+      this._integrateVolume(iFlag, rFlag);
 
     }
 
@@ -596,7 +613,7 @@
 
       if (this.frameAvailable) {
         // Upload the video frame to texture.
-		    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 640, 480, gl.RED, gl.FLOAT, this.video);
+		    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RED, gl.FLOAT, this.video);
 
 
       }
@@ -609,7 +626,7 @@
 
 
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, gl.normal_texture);
+      gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
       gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
@@ -750,10 +767,12 @@
 
   const integrateSource = `#version 310 es
   layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
-  layout (r32ui, binding = 0) uniform highp uimage3D volumeData;
+  layout (r32f, binding = 0) uniform highp image3D volumeData;
+  layout (r32f, binding = 1) uniform highp image3D volumeWeightData;
 
-  layout (rgba32f, binding = 1) uniform readonly highp image2D vertexImage;
-  layout (rgba32f, binding = 2) uniform readonly highp image2D trackImage;
+  layout (rgba32f, binding = 2) uniform readonly highp image2D vertexImage;
+  layout (rgba8ui, binding = 3) uniform readonly highp uimage2D trackImage;
+  layout (rgba32f, binding = 4) uniform writeonly highp image2D normalImage;
 
   uniform int integrateFlag;
   uniform int resetFlag;
@@ -769,30 +788,30 @@
   uniform float volDim; // length in meters FLOAT!!!!
   uniform float volSize; // voxel grid size
 
-  // to store in es3.1 compatible read/write image formats, we need to pack the floats into a single r32i image
-  // 
-  vec2 convertIntToVec2(uint inData)
-  {
-    vec2 outData;
+  // // to store in es3.1 compatible read/write image formats, we need to pack the floats into a single r32i image
+  // // 
+  // vec2 convertIntToVec2(int inData)
+  // {
+  //   vec2 outData;
     
-    uint tX = uint(inData & 4294901760u) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
-	  uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
+  //   int tX = uint(inData & 4294901760) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
+	//   int tY = uint(inData & 65535); // 0000 0000 0000 0000 1111 1111 1111 1111
 
-    outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
-    outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
+  //   outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
+  //   outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
 
-    return outData;
-  }
+  //   return outData;
+  // }
 
-  uint convertVec2ToInt(vec2 inData)
-  {
-    inData.x = min(65535.0f, 1000.0f * inData.x);
-    inData.y = min(65535.0f, 10.0f * inData.y);
+  // uint convertVec2ToInt(vec2 inData)
+  // {
+  //   inData.x = min(65535.0f, 1000.0f * inData.x);
+  //   inData.y = min(65535.0f, 10.0f * inData.y);
 
-    uint outData;
-	  outData = uint(inData.x) << 16u | uint(inData.y);
-    return outData;
-  }
+  //   uint outData;
+	//   outData = uint(inData.x) << 16u | uint(inData.y);
+  //   return outData;
+  // }
 
 
   vec3 projectPointImage(vec3 p, float fx, float fy, float cx, float cy)
@@ -809,10 +828,10 @@
 
   vec2 getSDF(uvec3 pos)
   {
-      uint dataIn = imageLoad(volumeData, ivec3(pos)).x;
+      //uint dataIn = imageLoad(volumeData, ivec3(pos)).x;
+      //return convertIntToVec2(dataIn);
 
-      return convertIntToVec2(dataIn);
-
+      return vec2(imageLoad(volumeData, ivec3(pos)).x, imageLoad(volumeWeightData, ivec3(pos)).x);
   }
 
   bool inFrustrum(in vec4 pClip)
@@ -850,7 +869,7 @@
           continue;
         }
 
-        track[cameraDevice] = imageLoad(trackImage, px);
+        track[cameraDevice] = vec4(imageLoad(trackImage, px));
 
         vec4 depthPoint = imageLoad(vertexImage, px);
 
@@ -866,67 +885,69 @@
         float tdiff = length(shiftVec);
         diff[cameraDevice] = shiftVec.z < 0.0 ? tdiff : -tdiff;
 
-          }
-          float finalDiff = 10000.0f;
-          float validCameras = 0.0f;
-          for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
-          {
-            if (diff[cameraDevice] != 10000.0f)
-            {
-              if (abs(diff[cameraDevice]) < abs(finalDiff))
-              {
-                bestTrack = cameraDevice;
-                finalDiff = diff[cameraDevice];
-              }
-            }
-          }
+      }
 
-          float ctfo = 0.1f;
-          if (track[bestTrack] == vec4(0.5f, 0.5f, 0.5f, 1.0 ))
+      float finalDiff = 10000.0f;
+      float validCameras = 0.0f;
+      for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
+      {
+        if (diff[cameraDevice] != 10000.0f)
+        {
+          if (abs(diff[cameraDevice]) < abs(finalDiff))
           {
-              ctfo = 0.1f;
+            bestTrack = cameraDevice;
+            finalDiff = diff[cameraDevice];
           }
-          else if (track[bestTrack] == vec4(1.0f, 1.0f, 0.0f, 1.0))
-          {
-              ctfo = 0.001f;
-          }
-          else if (track[bestTrack] == vec4(1.0f, 0.0f, 0.0f, 1.0))
-          {
-              ctfo = 0.001f;
-          }
+        }
+      }
 
-          float dMin = -volDim / 20.0f;
-          float dMax = volDim / 10.0f;
-          // if diff within TSDF range, write to volume
-          if (finalDiff < dMax && finalDiff > dMin)
-          {
-            vec2 data = getSDF(pix);
-            float weightedDistance = 0.0f;
-            if (p2p == 1)
-            {
-              weightedDistance = (data.y * data.x + finalDiff) / (data.y + 1.0f);
-            }
-            else if (p2v == 1)
-            {
-              weightedDistance = (data.y * data.x + ctfo * finalDiff) / (data.y + ctfo);
-            }
-            if (weightedDistance < dMax)
-            {
-            data.x = clamp(weightedDistance, dMin, dMax);
-            data.y = min(data.y + 1.0f, (maxWeight));
-          }
-          else
-          {
-            data.x = 0.0f;
-            data.y = 0.0f;
-          }
-        uint dataOut = convertVec2ToInt(data);  
-        imageStore(volumeData, ivec3(pix), uvec4(dataOut, 0, 0, 0));
+      float ctfo = 0.1f;
+      if (track[bestTrack] == vec4(0.5f, 0.5f, 0.5f, 1.0 ))
+      {
+          ctfo = 0.1f;
+      }
+      else if (track[bestTrack] == vec4(1.0f, 1.0f, 0.0f, 1.0))
+      {
+          ctfo = 0.001f;
+      }
+      else if (track[bestTrack] == vec4(1.0f, 0.0f, 0.0f, 1.0))
+      {
+          ctfo = 0.001f;
+      }
+
+      float dMin = -volDim / 20.0f;
+      float dMax = volDim / 10.0f;
+      // if diff within TSDF range, write to volume
+      if (finalDiff < dMax && finalDiff > dMin)
+      {
+        vec2 data = getSDF(pix);
+        float weightedDistance = 0.0f;
+        if (p2p == 1)
+        {
+          weightedDistance = (data.y * data.x + finalDiff) / (data.y + 1.0f);
+        }
+        else if (p2v == 1)
+        {
+          weightedDistance = (data.y * data.x + ctfo * finalDiff) / (data.y + ctfo);
+        }
+        if (weightedDistance < dMax)
+        {
+          data.x = clamp(weightedDistance, dMin, dMax);
+          data.y = min(data.y + 1.0f, (maxWeight));
+        }
+        else
+        {
+          data.x = 0.0f;
+          data.y = 0.0f;
+        }
+        //uint dataOut = convertVec2ToInt(data);  
+        imageStore(volumeData, ivec3(pix), vec4(data.x, 0, 0, 0));
+        imageStore(volumeWeightData, ivec3(pix), vec4(data.y));
       }
       else
       {
-      //pix.z += 50; // need to be clever here, but this could work nicely woudl like to jump to just before the 
-      //imageStore(volumeData, ivec3(pix), vec4(0.0f));
+        // pix.z += 50; // need to be clever here, but this could work nicely woudl like to jump to just before the 
+        // imageStore(volumeData, ivec3(pix), uvec4(0));
       }     
     }
   }
@@ -938,7 +959,8 @@
     {
       for (int zDep = 0; zDep < int(volSize); zDep++)
       {
-        imageStore(volumeData, ivec3(pix.x, pix.y, zDep), uvec4(0));
+        imageStore(volumeData, ivec3(pix.x, pix.y, zDep), vec4(0));
+        imageStore(volumeWeightData, ivec3(pix.x, pix.y, zDep), vec4(0));
       }
     }
   }
@@ -979,7 +1001,7 @@
   const raycastSource = `#version 310 es
   layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
-  layout (r32ui, binding = 0) uniform readonly highp uimage3D volumeData;
+  layout (r32f, binding = 0) uniform readonly highp image3D volumeData;
   layout (rgba32f, binding = 1) uniform writeonly highp image2D refVertex;
   layout (rgba32f, binding = 2) uniform writeonly highp image2D refNormal;
 
@@ -992,32 +1014,33 @@
   uniform vec3 volDim; // VEC3 !!!
   uniform vec3 volSize;
 
-  vec2 convertIntToVec2(uint inData)
-  {
-    vec2 outData;
+  // vec2 convertIntToVec2(uint inData)
+  // {
+  //   vec2 outData;
     
-    uint tX = uint(inData & 4294901760u) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
-	  uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
+  //   uint tX = uint(inData & 4294901760u) >> 16u; // 1111 1111 1111 1111 0000 0000 0000 0000 
+	//   uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
 
-    outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
-    outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
+  //   outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
+  //   outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
 
-    return outData;
-  }
+  //   return outData;
+  // }
 
-  uint convertVec2ToInt(vec2 inData)
-  {
-    inData.x = min(65535.0f, 1000.0f * inData.x);
-    inData.y = min(65535.0f, 10.0f * inData.y);
+  // uint convertVec2ToInt(vec2 inData)
+  // {
+  //   inData.x = min(65535.0f, 1000.0f * inData.x);
+  //   inData.y = min(65535.0f, 10.0f * inData.y);
 
-    uint outData;
-	  outData = uint(inData.x) << 16u | uint(inData.y);
-    return outData;
-  }
+  //   uint outData;
+	//   outData = uint(inData.x) << 16u | uint(inData.y);
+  //   return outData;
+  // }
 
   float vs(uvec3 pos)
   {  
-    return convertIntToVec2(imageLoad(volumeData, ivec3(pos)).x).x;
+    //return convertIntToVec2(imageLoad(volumeData, ivec3(pos)).x).x;
+    return imageLoad(volumeData, ivec3(pos)).x;
   }
 
   float interpVol(vec3 pos)
@@ -1032,7 +1055,7 @@
          + (vs(uvec3(lower.x, upper.y, lower.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, lower.z)) * (factor.x)) * (factor.y)) * (1.0f - factor.z)
         + ((vs(uvec3(lower.x, lower.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, lower.y, upper.z)) * (factor.x)) * (1.0f - factor.y)
          + (vs(uvec3(lower.x, upper.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, upper.z)) * (factor.x)) * (factor.y)) * (factor.z)
-        ) * 0.00003051944088f;
+        );
   }
 
   vec4 raycast(uvec2 pos, int camera)
@@ -1059,6 +1082,7 @@
 
     if (tnear < tfar)
     {
+
       // first walk with largesteps until we found a hit
       float t = tnear;
       float stepsize = largeStep;
@@ -1068,9 +1092,11 @@
       float f_tt = 0.0f;
       if (f_t >= 0.0f)
       {  // ups, if we were already in it, then don't render anything here
+
         for (; t < tfar; t += stepsize)
         {
           f_tt = interpVol(vec3(origin + direction * t));
+
           if (f_tt < 0.0f) // got it, jump out of inner loop
           {
             break; // 
@@ -1135,7 +1161,7 @@
         + ((vs(uvec3(lower.x, upper.y, upper_upper.z)) - vs(uvec3(lower.x, upper.y, lower_upper.z))) * (1.0f - factor.x)
         + (vs(uvec3(upper.x, upper.y, upper_upper.z)) - vs(uvec3(upper.x, upper.y, lower_upper.z))) * factor.x) * factor.y) * factor.z;
 
-    return gradient * vec3(volDim.x / volSize.x, volDim.y / volSize.y, volDim.z / volSize.z) * (0.5f * 0.00003051944088f);
+    return gradient * vec3(volDim.x / volSize.x, volDim.y / volSize.y, volDim.z / volSize.z) * (0.5f);
   }
 
   void main()
@@ -1144,10 +1170,21 @@
     uvec2 pix = gl_GlobalInvocationID.xy;
     for (int camera = 0; camera < numberOfCameras; camera++)
     {
+      // for (int z = 0; z < 128; z++)
+      // {
+      //   float deets = imageLoad(volumeData, ivec3(pix.xy, z)).x;
+      //   if (deets != 0.0f)
+      //   {
+      //     imageStore(refNormal, ivec2(pix), vec4(0.5,0.5,0.1, 1.0f));
+      //   }
+      // }
+
       vec4 hit = raycast(pix, camera);
       if (hit.w > 0.0f)
       {
         imageStore(refVertex, ivec2(pix), vec4(hit.xyz, 1.0f));
+        imageStore(refNormal, ivec2(pix), vec4(1.0, 0.2, 0.5, 1.0));
+
         vec3 surfNorm = getGradient(hit);
         if (length(surfNorm) == 0.0f)
         {
@@ -1163,6 +1200,7 @@
         imageStore(refVertex, ivec2(pix), vec4(0.0f));
         imageStore(refNormal, ivec2(pix), vec4(0.0f));
       }
+      
     }
   }
   `;
@@ -1487,13 +1525,13 @@
 	  
 	  var fragmentShaderSource = `#version 310 es
         precision mediump float;
-        uniform sampler2D s;
+        uniform highp sampler2D s;
         in vec2 t;
 		    out vec4 outColor;
 
         void main(){
           vec4 tex = texture(s, t);
-          outColor = vec4(abs(tex.xyz), 1.0);
+          outColor = vec4(vec3(tex.xyz), 1.0);
         }`
 	  
       gl.shaderSource(pixel_shader, fragmentShaderSource);
@@ -1528,7 +1566,7 @@
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
 
 
-      let arr = new Float32Array(640 * 480 * 8);// width * height * sizeof reduType struct
+      let arr = new Float32Array(imageSize[0] * imageSize[1] * 8);// width * height * sizeof reduType struct
       var ssboReduction = gl.createBuffer();
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReduction);
       gl.bufferData(gl.SHADER_STORAGE_BUFFER, arr, gl.DYNAMIC_COPY);
@@ -1542,7 +1580,7 @@
 
       var depth_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, depth_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1551,7 +1589,18 @@
 
       var volume_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_3D, volume_texture);
-	    gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R32UI, 128, 128, 128);
+	    gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R32F, volSize[0], volSize[1], volSize[2]);
+
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      var volumeWeight_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_3D, volumeWeight_texture);
+	    gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R32F, volSize[0], volSize[1], volSize[2]);
 
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1561,9 +1610,10 @@
       gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 
 
+
       var render_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, render_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8UI, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8UI, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1578,7 +1628,7 @@
 
       var vertex_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, vertex_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1587,7 +1637,7 @@
 
       var normal_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, normal_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1596,7 +1646,7 @@
 
       var refVertex_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, refVertex_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1605,7 +1655,7 @@
 
       var refNormal_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, refNormal_texture);
-	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 640, 480);
+	    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, imageSize[0], imageSize[1]);
 
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1622,9 +1672,11 @@
       gl.depth_texture = depth_texture;
       gl.vertex_texture = vertex_texture;
       gl.normal_texture = normal_texture;
-      gl.volume_texture = volume_texture;
+      gl.volume_texture = volume_texture;      
+      gl.volumeWeight_texture = volumeWeight_texture;
       gl.refVertex_texture = refVertex_texture;
       gl.refNormal_texture = refNormal_texture;
+      gl.render_texture = render_texture;
 
 
       gl.framebuffer = framebuffer;

@@ -252,8 +252,7 @@
 
   var renderProgram;
 
-  var pose = glMatrix.mat4.create();
-  glMatrix.mat4.translate(pose, pose, [0.5, 0.5, 0.0]);
+
 
   var camPam = [420, 240, 641, 641]; // cx cy fx fy
 
@@ -264,15 +263,19 @@
       K[9] = camPam[1];
 
   var invK = glMatrix.mat4.create();
-    	invK[0] = 1.0 / camPam[2];
-      invK[5] = 1.0 / camPam[3];
-      invK[8] = -camPam[0] / camPam[2];
-      invK[9] = -camPam[1] / camPam[3];
+  glMatrix.mat4.invert(invK, K);
+  //  	invK[0] = 1.0 / camPam[2];
+  //    invK[5] = 1.0 / camPam[3];
+  //    invK[8] = -camPam[0] / camPam[2];
+  //    invK[9] = -camPam[1] / camPam[3];
 
   var volDim = [1.0, 1.0, 1.0];    
   var volSize = [128.0, 128.0, 128.0];
 
   var imageSize = [848, 480];
+
+  var pose = glMatrix.mat4.create();
+  //glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0]);
 
   
   
@@ -501,9 +504,8 @@
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
       // uniforms 
       gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "T"), false, _T);
-
-      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.1);
-      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.8);
+      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.01);
+      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.9);
       gl.uniform1i(gl.getUniformLocation(p2pTrackProg, "mip"), _level);
       gl.uniform4fv(gl.getUniformLocation(p2pTrackProg, "cam"), camPam);
 
@@ -530,7 +532,7 @@
       var view = glMatrix.mat4.create();
       glMatrix.mat4.mul(view, pose, invK);
 
-      let dMin = -volDim[0] / 20.0; // 1.0 is volume dimensions
+      let dMin = -volDim[0] / 20.0;
       let dMax = volDim[0] / 10.0;
 
       let step = volDim[0] / volSize[0];
@@ -540,8 +542,8 @@
       gl.uniform1f(gl.getUniformLocation(raycastProg, "largeStep"), 0.5 * 0.75);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "nearPlane"), 0.1);
       gl.uniform1f(gl.getUniformLocation(raycastProg, "farPlane"), 3.0);
-      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volDim"), volDim);
-      gl.uniform3fv(gl.getUniformLocation(raycastProg, "volSize"), volSize);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "volDim"), volDim[0]);
+      gl.uniform1f(gl.getUniformLocation(raycastProg, "volSize"), volSize[0]);
 
       gl.dispatchCompute(this.video.width / 32, this.video.height / 32, 1);
       gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -559,7 +561,7 @@
       // bind uniforms
       gl.uniformMatrix4fv(gl.getUniformLocation(depthToVertProg, "invK"), false, invK);
       gl.uniform1f(gl.getUniformLocation(depthToVertProg, "minDepth"), 0.1);
-      gl.uniform1f(gl.getUniformLocation(depthToVertProg, "maxDepth"), 1.0);
+      gl.uniform1f(gl.getUniformLocation(depthToVertProg, "maxDepth"), 3.0);
       gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "bottomLeft"), [0, 0]);
       gl.uniform2fv(gl.getUniformLocation(depthToVertProg, "topRight"), imageSize);
 
@@ -583,6 +585,7 @@
       this._raycastVolume();
       
       var T = glMatrix.mat4.create();
+
       T = pose;
       var level = 0;
 
@@ -603,7 +606,7 @@
         this._solve(A, b, result);
         this._resultToMatrix(result, delta);
 
-        //glMatrix.mat4.mul(T, delta, T);
+        glMatrix.mat4.mul(T, delta, T);
       }
 
       pose = T;
@@ -1021,8 +1024,8 @@
   uniform float farPlane;
   uniform float step;
   uniform float largeStep;
-  uniform vec3 volDim; // VEC3 !!!
-  uniform vec3 volSize;
+  uniform float volDim; // VEC3 !!!
+  uniform float volSize;
 
   // vec2 convertIntToVec2(uint inData)
   // {
@@ -1055,7 +1058,7 @@
 
   float interpVol(vec3 pos)
   {
-    vec3 scaled_pos = vec3((pos.x * volSize.x / volDim.x) - 0.5f, (pos.y * volSize.y / volDim.y) - 0.5f, (pos.z * volSize.z / volDim.z) - 0.5f);
+    vec3 scaled_pos = vec3((pos.x * volSize / volDim) - 0.5f, (pos.y * volSize / volDim) - 0.5f, (pos.z * volSize / volDim) - 0.5f);
     ivec3 base = ivec3(floor(scaled_pos));
     vec3 factor = fract(scaled_pos);
     ivec3 lower = max(base, ivec3(0));
@@ -1079,7 +1082,7 @@
       // compute intersection of ray with all six bbox planes
     vec3 invR = vec3(1.0f, 1.0f, 1.0f) / direction;
     vec3 tbot = -1.0f * invR * origin;
-    vec3 ttop = invR * (volDim - origin);
+    vec3 ttop = invR * (vec3(volDim) - origin);
     // re-order intersections to find smallest and largest on each axis
     vec3 tmin = min(ttop, tbot);
     vec3 tmax = max(ttop, tbot);
@@ -1129,7 +1132,7 @@
 
   vec3 getGradient(vec4 hit)
   {
-    vec3 scaled_pos = vec3((hit.x * volSize.x / volDim.x) - 0.5f, (hit.y * volSize.y / volDim.y) - 0.5f, (hit.z * volSize.z / volDim.z) - 0.5f);
+    vec3 scaled_pos = vec3((hit.x * volSize / volDim) - 0.5f, (hit.y * volSize / volDim) - 0.5f, (hit.z * volSize / volDim) - 0.5f);
     ivec3 baseVal = ivec3(floor(scaled_pos));
     vec3 factor = fract(scaled_pos);
     ivec3 lower_lower = max(baseVal - ivec3(1), ivec3(0));
@@ -1171,7 +1174,7 @@
         + ((vs(uvec3(lower.x, upper.y, upper_upper.z)) - vs(uvec3(lower.x, upper.y, lower_upper.z))) * (1.0f - factor.x)
         + (vs(uvec3(upper.x, upper.y, upper_upper.z)) - vs(uvec3(upper.x, upper.y, lower_upper.z))) * factor.x) * factor.y) * factor.z;
 
-    return gradient * vec3(volDim.x / volSize.x, volDim.y / volSize.y, volDim.z / volSize.z) * (0.5f);
+    return gradient * vec3(volDim / volSize, volDim / volSize, volDim / volSize) * (0.5f);
   }
 
   void main()
@@ -1180,6 +1183,15 @@
     uvec2 pix = gl_GlobalInvocationID.xy;
     for (int camera = 0; camera < numberOfCameras; camera++)
     {
+      // for (int z = 0; z < 128; z++)
+      // {
+      //   float deets = imageLoad(volumeData, ivec3(pix.xy, z)).x;
+      //   if (deets != 0.0f)
+      //   {
+      //     imageStore(refNormal, ivec2(pix), vec4(0.5,0.5,0.5, 1.0f));
+      //   }
+      // }
+
       vec4 hit = raycast(pix, camera);
       if (hit.w > 0.0f)
       {
@@ -1283,7 +1295,7 @@
         else
         {
           // depth vert in global space
-          vec4 projectedVertex = T * vec4(imageLoad(inVertex, ivec2(pix)).xyz, 1.0f); // CHECK ME AGAINT THE OLD CRAPPY OPMUL
+          vec4 projectedVertex = T * vec4(imageLoad(inVertex, ivec2(pix)).xyz, 1.0f);
           // this depth vert in global space is then prejected back to normal depth space
 				  vec3 projPixel = projectPointImage(projectedVertex.xyz);
           if (projPixel.x < 0.0f || int(projPixel.x) > refSize.x || projPixel.y < 0.0f || int(projPixel.y) > refSize.y)

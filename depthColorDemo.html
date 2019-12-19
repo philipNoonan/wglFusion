@@ -255,17 +255,19 @@
   var pose = glMatrix.mat4.create();
   glMatrix.mat4.translate(pose, pose, [0.5, 0.5, 0.0]);
 
+  var camPam = [420, 240, 641, 641]; // cx cy fx fy
+
   var K = glMatrix.mat4.create();
-      K[0] = 613.0;
-      K[5] = 613.0;
-      K[8] = 320.0;
-      K[12] = 240.0;
+      K[0] = camPam[2];
+      K[5] = camPam[3];
+      K[8] = camPam[0];
+      K[9] = camPam[1];
 
   var invK = glMatrix.mat4.create();
-    	invK[0] = 1.0 / 613.0;
-      invK[5] = 1.0 / 613.0;
-      invK[8] = -320.0 / 613.0;
-      invK[12] = -240.0 / 613.0;
+    	invK[0] = 1.0 / camPam[2];
+      invK[5] = 1.0 / camPam[3];
+      invK[8] = -camPam[0] / camPam[2];
+      invK[9] = -camPam[1] / camPam[3];
 
   var volDim = [1.0, 1.0, 1.0];    
   var volSize = [128.0, 128.0, 128.0];
@@ -342,7 +344,7 @@
       var invPose = glMatrix.mat4.create();
       glMatrix.mat4.invert(invPose, pose);
 
-      gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "K"), false, K);
+      gl.uniform4fv(gl.getUniformLocation(integrateProg, "cam"), camPam);
       gl.uniformMatrix4fv(gl.getUniformLocation(integrateProg, "invT"), false, invPose);
 
       gl.uniform1i(gl.getUniformLocation(integrateProg, "integrateFlag"), _iFlag);
@@ -400,16 +402,30 @@
 
 
     _solve(_A, _b, _result) {
-      result = luqr.solve(_A,_b);
+
+      let A = Array.from(_A);
+      let b = Array.from(_b);
+      var folded_A = luqr.fold(A, 6);
+      var res = Array(6);
+      res = luqr.solve(folded_A,b);
+      if (res != null)
+      {
+        for (let i = 0; i < res.length; i++)
+        {
+          _result[i] = res[i];
+        }
+      }
+
+
     }
 
     _getReduction(_A, _b, _icpData) {
       const gl = this.gl;
 
-      const result = new Float32Array(8 * 32);
+      const outputReductionData = new Float32Array(8 * 32);
 
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboReductionOutput);
-      gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, result);
+      gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, outputReductionData);
 
       for (let row = 1; row < 8; row++)
 		  {
@@ -455,7 +471,7 @@
         }
       }
 
-      _icpData.AE = sqrt(outputReductionData[0] / outputReductionData[28]);
+      _icpData.AE = Math.sqrt(outputReductionData[0] / outputReductionData[28]);
       _icpData.icpCount = outputReductionData[28];
     }
 
@@ -464,6 +480,8 @@
       const gl = this.gl;
 
       gl.useProgram(p2pReduceProg);
+
+      gl.uniform2fv(gl.getUniformLocation(p2pReduceProg, "imSize"), imageSize);
 
       // buffers
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
@@ -477,21 +495,17 @@
     _track(_T, _level) {
       const gl = this.gl;
 
-      var invT = glMatrix.mat4.create();
-      glMatrix.mat4.invert(invT, _T);
-
       gl.useProgram(p2pTrackProg);
 
       // buffers
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
       // uniforms 
       gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "T"), false, _T);
-      gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "invT"), false, invT);
 
       gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.1);
-      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.9);
+      gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.8);
       gl.uniform1i(gl.getUniformLocation(p2pTrackProg, "mip"), _level);
-      gl.uniform4fv(gl.getUniformLocation(raycastProg, "cam"), [K[0], K[5], K[8], K[12]]);
+      gl.uniform4fv(gl.getUniformLocation(p2pTrackProg, "cam"), camPam);
 
       // textures
       gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
@@ -543,7 +557,6 @@
       gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F)
 
       // bind uniforms
-
       gl.uniformMatrix4fv(gl.getUniformLocation(depthToVertProg, "invK"), false, invK);
       gl.uniform1f(gl.getUniformLocation(depthToVertProg, "minDepth"), 0.1);
       gl.uniform1f(gl.getUniformLocation(depthToVertProg, "maxDepth"), 1.0);
@@ -569,34 +582,31 @@
       this._generateVertNorms();
       this._raycastVolume();
       
-
-      
-
       var T = glMatrix.mat4.create();
+      T = pose;
       var level = 0;
 
-      var A = new Float32Array(6);
+      var A = new Float32Array(36); // 6 * 6
       var b = new Float32Array(6);
       var result = new Float32Array(6);
       var icpData = {AE:0.0, icpCount:0};
 
-      for (let i = 0; i < 6; i++)
-      {
-        A[i] = new Float32Array(6);
-      }
+
 
       for (let i = 0; i < 5; i++)
       {
         var delta = glMatrix.mat4.create();
 
         this._track(T, level);
-        //this._reduce();
-        //this._getReduction(A, b, icpData);
-        // this._solve(A, b, result);
-        // this._resultToMatrix(result, delta);
+        this._reduce();
+        this._getReduction(A, b, icpData);
+        this._solve(A, b, result);
+        this._resultToMatrix(result, delta);
 
-        // T = delta * T;
+        //glMatrix.mat4.mul(T, delta, T);
       }
+
+      pose = T;
 
       var iFlag = 1;
       var rFlag = 0;
@@ -626,7 +636,7 @@
 
 
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
+      gl.bindTexture(gl.TEXTURE_2D, gl.refVertex_texture);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
       gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
@@ -778,7 +788,7 @@
   uniform int resetFlag;
 
   uniform mat4 invT;
-  uniform mat4 K;
+  uniform vec4 cam; // cx cy fx fy
 
   uniform int p2p;
   uniform int p2v;
@@ -814,10 +824,10 @@
   // }
 
 
-  vec3 projectPointImage(vec3 p, float fx, float fy, float cx, float cy)
+  vec3 projectPointImage(vec3 p)
   {
-      return vec3(((fx * p.x) / p.z) + cx,
-                  ((fy * p.y) / p.z) + cy,
+      return vec3(((cam.z * p.x) / p.z) + cam.x,
+                  ((cam.w * p.y) / p.z) + cam.y,
                   p.z);
   }
 
@@ -858,7 +868,7 @@
       {
       // get world position of centre of voxel 
         vec3 worldPos = vec3(invT * vec4(getVolumePosition(pix), 1.0f)).xyz;
-        vec3 pixel = projectPointImage(worldPos, K[0][0], K[1][1], K[2][0], K[2][1]);
+        vec3 pixel = projectPointImage(worldPos);
         ivec2 px = ivec2(pixel.x + 0.5f, pixel.y + 0.5f); // for rounding
 
         //imageStore(volumeData, ivec3(pix), vec4(dMin, dMax, 0, 0));
@@ -996,7 +1006,7 @@
     return;
   }
 
-      // ComputeShader source
+  // ComputeShader source
   // language=GLSL
   const raycastSource = `#version 310 es
   layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
@@ -1170,20 +1180,10 @@
     uvec2 pix = gl_GlobalInvocationID.xy;
     for (int camera = 0; camera < numberOfCameras; camera++)
     {
-      // for (int z = 0; z < 128; z++)
-      // {
-      //   float deets = imageLoad(volumeData, ivec3(pix.xy, z)).x;
-      //   if (deets != 0.0f)
-      //   {
-      //     imageStore(refNormal, ivec2(pix), vec4(0.5,0.5,0.1, 1.0f));
-      //   }
-      // }
-
       vec4 hit = raycast(pix, camera);
       if (hit.w > 0.0f)
       {
         imageStore(refVertex, ivec2(pix), vec4(hit.xyz, 1.0f));
-        imageStore(refNormal, ivec2(pix), vec4(1.0, 0.2, 0.5, 1.0));
 
         vec3 surfNorm = getGradient(hit);
         if (length(surfNorm) == 0.0f)
@@ -1232,14 +1232,13 @@
   layout(binding = 2, rgba32f) readonly uniform highp image2D refVertex;
   layout(binding = 3, rgba32f) readonly uniform highp image2D refNormal;
 
-  layout(binding = 4, rgba8) writeonly uniform highp image2D trackImage;
+  layout(binding = 4, rgba8ui) writeonly uniform highp uimage2D trackImage;
 
   uniform mat4 T;
-  uniform mat4 invT;
   uniform float distThresh;
   uniform float normThresh;
   uniform int mip;
-  uniform vec4 cam;
+  uniform vec4 cam; // cx cy fx fy
 
   vec3 projectPointImage(vec3 p)
   {
@@ -1250,15 +1249,15 @@
 
   struct reduType
   {
-    int result;
+    float result;
     float error;
     float J[6];
   };
 
   layout(std430, binding = 0) buffer TrackData
   {
-    reduType trackOutput[];
-  };
+    reduType data[];
+  } trackOutput;
 
 
   void main()
@@ -1268,6 +1267,8 @@
     ivec2 imSize = imageSize(inVertex); // mipmapped sizes
     ivec2 refSize = imageSize(refVertex); // full depth size
 
+    uint offset = uint((pix.y * imSize.x) + pix.x);
+
     for (int camera = 0; camera < numberOfCameras; camera++)
     {
       uint offset = uint(camera * imSize.x * imSize.y) + uint((pix.y * imSize.x) + pix.x);
@@ -1276,8 +1277,8 @@
         vec4 normals = imageLoad(inNormal, ivec2(pix));
         if (normals.x == 2.0f)
         {
-          trackOutput[offset].result = -1; // does this matter since we are in a low mipmap not full size???
-          imageStore(trackImage, ivec2(pix), vec4(0, 0, 0, 0));
+          trackOutput.data[offset].result = -1.0f; // does this matter since we are in a low mipmap not full size???
+          imageStore(trackImage, ivec2(pix), uvec4(0, 0, 0, 0));
         }
         else
         {
@@ -1287,8 +1288,8 @@
 				  vec3 projPixel = projectPointImage(projectedVertex.xyz);
           if (projPixel.x < 0.0f || int(projPixel.x) > refSize.x || projPixel.y < 0.0f || int(projPixel.y) > refSize.y)
           {
-            trackOutput[offset].result = -2;
-            imageStore(trackImage, ivec2(pix), vec4(1.0f, 0.0f, 0.0f, 1.0f));
+            trackOutput.data[offset].result = -2.0f;
+            imageStore(trackImage, ivec2(pix), uvec4(255, 0, 0, 255));
           }
           else
           {
@@ -1299,8 +1300,8 @@
 
             if (referenceNormal.x == -2.0f)
             {
-              trackOutput[offset].result = -3;
-              imageStore(trackImage, ivec2(pix), vec4(0, 1.0f, 0, 1.0f));
+              trackOutput.data[offset].result = -3.0f;
+              imageStore(trackImage, ivec2(pix), uvec4(0, 255, 0, 255));
             }
             else
             {
@@ -1311,29 +1312,29 @@
 
               if (length(diff) > distThresh)
               {
-                trackOutput[offset].result = -4;
-                imageStore(trackImage, ivec2(pix), vec4(0, 0, 1.0f, 1.0f));
+                trackOutput.data[offset].result = -4.0f;
+                imageStore(trackImage, ivec2(pix), uvec4(0, 0, 255, 255));
               }
               else if (dot(projectedNormal, referenceNormal) < normThresh)
               {
-                trackOutput[offset].result = -5;
-                imageStore(trackImage, ivec2(pix), vec4(1.0f, 1.0f, 0, 1.0f));
+                trackOutput.data[offset].result = -5.0f;
+                imageStore(trackImage, ivec2(pix), uvec4(255, 255, 0, 255));
               }
               else
               {
-                imageStore(trackImage, ivec2(pix), vec4(0.5f, 0.5f, 0.5f, 1.0f));
+                imageStore(trackImage, ivec2(pix), uvec4(127, 127, 127, 255));
 
-                trackOutput[offset].result = 1;
-                trackOutput[offset].error = dot(referenceNormal, diff);
+                trackOutput.data[offset].result = 1.0f;
+                trackOutput.data[offset].error = dot(referenceNormal, diff);
 
-                trackOutput[offset].J[0] = referenceNormal.x;
-                trackOutput[offset].J[1] = referenceNormal.y;
-                trackOutput[offset].J[2] = referenceNormal.z;
+                trackOutput.data[offset].J[0] = referenceNormal.x;
+                trackOutput.data[offset].J[1] = referenceNormal.y;
+                trackOutput.data[offset].J[2] = referenceNormal.z;
 
                 vec3 crossProjVertRefNorm = cross(projectedVertex.xyz, referenceNormal);
-                trackOutput[offset].J[3] = crossProjVertRefNorm.x;
-                trackOutput[offset].J[4] = crossProjVertRefNorm.y;
-                trackOutput[offset].J[5] = crossProjVertRefNorm.z;
+                trackOutput.data[offset].J[3] = crossProjVertRefNorm.x;
+                trackOutput.data[offset].J[4] = crossProjVertRefNorm.y;
+                trackOutput.data[offset].J[5] = crossProjVertRefNorm.z;
               }
             }
           }
@@ -1367,22 +1368,22 @@
 
   struct reduType
   {
-    int result;
+    float result;
     float error;
     float J[6];
   };
 
   layout(std430, binding = 0) buffer TrackData
   {
-    reduType trackOutput[];
-  };
+    reduType data[];
+  } trackOutput;
 
   layout(std430, binding = 1) buffer OutputData
   {
-    float outputData [];
-  };
+    float data[];
+  } outputData;
 
-  uniform ivec2 imSize; 
+  uniform vec2 imSize; 
   shared float S[112][32];
 
   void main()
@@ -1399,18 +1400,18 @@
     {
       for (uint x = sline; x < uint(imSize.x); x += gl_WorkGroupSize.x)
       {
-        reduType row = trackOutput[(y * uint(imSize.x)) + x];
-        if (row.result < 1)
+        reduType row = trackOutput.data[(y * uint(imSize.x)) + x];
+        if (row.result < 1.0f)
         {
-          if (row.result == -4)
+          if (row.result == -4.0f)
           {
             sums[29]++;
           }
-          if (row.result == -5)
+          if (row.result == -5.0f)
           {
             sums[30]++;
           }
-          if (row.result > -4)
+          if (row.result > -4.0f)
           {
             sums[31]++;
           }
@@ -1471,7 +1472,7 @@
         {
           S[0][sline] += S[i][sline];
         }
-      outputData[sline + gl_WorkGroupID.x * 32u] = S[0][sline];
+      outputData.data[sline + gl_WorkGroupID.x * 32u] = S[0][sline];
     }
   }
   `;
@@ -1530,8 +1531,8 @@
 		    out vec4 outColor;
 
         void main(){
-          vec4 tex = texture(s, t);
-          outColor = vec4(vec3(tex.xyz), 1.0);
+          vec4 tex = vec4(texture(s, t));
+          outColor = vec4(abs(vec3(tex.xyz) / 1.0f), 1.0);
         }`
 	  
       gl.shaderSource(pixel_shader, fragmentShaderSource);
@@ -1574,7 +1575,7 @@
       let arrOutput = new Float32Array(32 * 8);
       var ssboReductionOutput = gl.createBuffer();
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionOutput);
-      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arr, gl.DYNAMIC_COPY);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrOutput, gl.DYNAMIC_COPY);
 
 
 

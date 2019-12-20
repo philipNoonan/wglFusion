@@ -201,6 +201,7 @@
 <script src="src/trackP2P.js"></script>
 <script src="src/reduceP2P.js"></script>
 <script src="src/render.js"></script>
+<script src="src/getClickedPoint.js"></script>
 
 
 
@@ -235,7 +236,6 @@
     else {
       intFlag.checked = false;
     }
-
   }
 
 
@@ -275,6 +275,16 @@
 
   const videoToggle = document.getElementById("show-video-toggle");
   
+  function getCursorPosition(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    //console.log("x: " + x + " y: " + y);
+    mouseClickPos[0] = x;
+    mouseClickPos[1] = y;
+
+}
+
   // programs
   var depthToVertProg;
   var vertToNormProg;
@@ -283,6 +293,7 @@
   var p2pTrackProg;
   var p2pReduceProg;
 
+  var clickedPointProg;
   var renderProgram;
 
   var resetFlag = 0;
@@ -306,16 +317,21 @@
   //    invK[9] = -camPam[1] / camPam[3];
 
   var volDim = [0.5, 0.5, 0.5];    
-  var volSize = [128.0, 128.0, 128.0];
+  var volSize = [256.0, 256.0, 256.0];
 
   var imageSize = [848, 480];
 
   var pose = glMatrix.mat4.create();
   var initPose = glMatrix.mat4.create();
+  var invIP = glMatrix.mat4.create();
 
   glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0.0]);
   initPose = [...pose];
+  glMatrix.mat4.invert(invIP, initPose);
+
+  var mouseClickPos = [imageSize[0] / 2, imageSize[1] / 2];
   
+
   
 
   customElements.define('video-stream', class extends HTMLElement {
@@ -365,7 +381,28 @@
       });
     }
     
+    _getClickedPoint() {
+      const gl = this.gl;
 
+      gl.useProgram(clickedPointProg);
+
+      gl.uniform2fv(gl.getUniformLocation(clickedPointProg, "clickedPoint"), mouseClickPos);
+      gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+      gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboClickedPoint);
+
+      gl.dispatchCompute(1, 1, 1);
+      gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+      const clickedVert = new Float32Array(4);
+
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboClickedPoint);
+      gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, clickedVert);
+
+      initPose = glMatrix.mat4.create();
+      glMatrix.mat4.translate(initPose, initPose, [-clickedVert[0] + volDim[0] / 2.0, -clickedVert[1] + volDim[1] / 2.0, -clickedVert[2] + volDim[2] / 2.0]);
+      pose = [...initPose];
+
+    }
 
 
 
@@ -509,6 +546,7 @@
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
       // uniforms 
       gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "T"), false, _T);
+
       gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.01);
       gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.9);
       gl.uniform1i(gl.getUniformLocation(p2pTrackProg, "mip"), _level);
@@ -628,8 +666,7 @@
     _calcPose() {
       const gl = this.gl;
 
-      if (resetFlag == 0)
-      {
+      if (resetFlag == 0) {
         this._generateVertNorms();
         this._raycastVolume();
         
@@ -643,7 +680,7 @@
         var result = new Float32Array(6);
         var icpData = {AE:0.0, icpCount:0};
 
-        for (let i = 0; i < 5; i++)
+        for (let i = 0; i < 2; i++)
         {
           var delta = glMatrix.mat4.create();
 
@@ -657,6 +694,9 @@
         }
 
         pose = [...T];
+      }
+      else {
+        this._getClickedPoint();
       }
       
 
@@ -690,8 +730,10 @@
 
 
       gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
+      gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
-      
+
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
       gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
 
@@ -726,6 +768,10 @@
         gl = canvas.getContext("webgl");
         gl.getExtension("OES_texture_float");
       }
+      // from https://stackoverflow.com/questions/55677/how-do-i-get-the-coordinates-of-a-mouse-click-on-a-canvas-element/18053642#18053642
+      canvas.addEventListener('mousedown', function(e) {
+        getCursorPosition(canvas, e)
+      })
 
 
   // CREATE SHADERS
@@ -825,6 +871,22 @@
     return;
   }
 
+  const clickedPointShader = gl.createShader(gl.COMPUTE_SHADER);
+  gl.shaderSource(clickedPointShader, clickedPointSource);
+  gl.compileShader(clickedPointShader);
+  if (!gl.getShaderParameter(clickedPointShader, gl.COMPILE_STATUS)) {
+    console.log(gl.getShaderInfoLog(clickedPointShader));
+    return;
+  }
+  
+  clickedPointProg = gl.createProgram();
+  gl.attachShader(clickedPointProg, clickedPointShader);
+  gl.linkProgram(clickedPointProg);
+  if (!gl.getProgramParameter(clickedPointProg, gl.LINK_STATUS)) {
+    console.log(gl.getProgramInfoLog(clickedPointProg));
+    return;
+  }
+
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -887,7 +949,10 @@
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionOutput);
       gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrOutput, gl.DYNAMIC_COPY);
 
-
+      let arrClicked = new Float32Array(4);
+      var ssboClickedPoint = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboClickedPoint);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrClicked, gl.DYNAMIC_COPY);
 
       var depth_texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, depth_texture);
@@ -979,6 +1044,7 @@
 
       gl.ssboReduction = ssboReduction;
       gl.ssboReductionOutput = ssboReductionOutput;
+      gl.ssboClickedPoint = ssboClickedPoint;
 
       gl.depth_texture = depth_texture;
       gl.vertex_texture = vertex_texture;

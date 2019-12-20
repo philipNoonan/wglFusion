@@ -59,7 +59,7 @@
           // depth vert in global space
           vec4 projectedVertex = T * vec4(imageLoad(inVertex, ivec2(pix)).xyz, 1.0f);
           // this depth vert in global space is then prejected back to normal depth space
-				  vec3 projPixel = projectPointImage(projectedVertex.xyz);
+		  vec3 projPixel = projectPointImage(projectedVertex.xyz);
           if (projPixel.x < 0.0f || int(projPixel.x) > refSize.x || projPixel.y < 0.0f || int(projPixel.y) > refSize.y)
           {
             trackOutput.data[offset].result = -2.0f;
@@ -67,7 +67,7 @@
           }
           else
           {
-				  // THIS IS NOT THE FIX!!!! THIS JUST DOES LOTS OF ITERATIONS WITHOUT TRYING TO UPDATE T, maybe, not his is probably ok, T is getting updated so projectedVertex is changing each iter
+			// THIS IS NOT THE FIX!!!! THIS JUST DOES LOTS OF ITERATIONS WITHOUT TRYING TO UPDATE T, maybe, not his is probably ok, T is getting updated so projectedVertex is changing each iter
             ivec2 refPixel = ivec2(pix.x << mip, pix.y << mip);//ivec2(projPixel.x + 0.5f, projPixel.y + 0.5f);
             vec3 referenceNormal = imageLoad(refNormal, refPixel).xyz;
             vec3 tmp = imageLoad(refVertex, refPixel).xyz;
@@ -79,7 +79,7 @@
             }
             else
             {
-						  vec3 refVert = imageLoad(refVertex, refPixel).xyz;
+			  vec3 refVert = imageLoad(refVertex, refPixel).xyz;
               vec3 diff = refVert - projectedVertex.xyz;
               vec4 currNormal = imageLoad(inNormal, ivec2(pix));
               vec3 projectedNormal = vec3((T * vec4(currNormal.xyz, 0.0f)).xyz); // input mipmap sized pixel

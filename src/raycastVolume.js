@@ -11,7 +11,7 @@
   uniform float farPlane;
   uniform float step;
   uniform float largeStep;
-  uniform float volDim; // VEC3 !!!
+  uniform float volDim;
   uniform float volSize;
 
   // vec2 convertIntToVec2(uint inData)

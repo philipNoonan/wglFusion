@@ -175,6 +175,10 @@
   <div id="buttoncontainer">
     <button onclick="resetVolume()">Reset Volume</button>
   </div>
+  <div>
+    <button onclick="integrateClick()">Integrate Volume</button>
+    <input type="radio" id="integrateRadio" checked>
+  </div>
   <div id="tabcontainer">
     <input id="tab1" type="radio" name="tabs" value="basic" checked="checked" data-ontaboff="stopBasicTab" data-ontabon="startBasicTab"/>
     <label for="tab1">Render depth</label>
@@ -218,8 +222,22 @@
   function resetVolume() {
     integrateFlag = 0;
     resetFlag = 1;
-    pose = initPose;
+    pose = [...initPose];
   }
+
+  function integrateClick() {
+    integrateFlag = 1 - integrateFlag;
+    var intFlag = document.getElementById("integrateRadio");
+
+    if (integrateFlag == 1) {
+      intFlag.checked = true;
+    }
+    else {
+      intFlag.checked = false;
+    }
+
+  }
+
 
   let tabs = document.getElementsByName("tabs");
   let videos = {depth: null, color: null};
@@ -255,8 +273,6 @@
     videoStreamEl.pause();
   }
 
-
-
   const videoToggle = document.getElementById("show-video-toggle");
   
   // programs
@@ -289,7 +305,7 @@
   //    invK[8] = -camPam[0] / camPam[2];
   //    invK[9] = -camPam[1] / camPam[3];
 
-  var volDim = [1.0, 1.0, 1.0];    
+  var volDim = [0.5, 0.5, 0.5];    
   var volSize = [128.0, 128.0, 128.0];
 
   var imageSize = [848, 480];
@@ -297,8 +313,8 @@
   var pose = glMatrix.mat4.create();
   var initPose = glMatrix.mat4.create();
 
-  glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0]);
-  initPose = pose;
+  glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0.0]);
+  initPose = [...pose];
   
   
 
@@ -612,38 +628,40 @@
     _calcPose() {
       const gl = this.gl;
 
-      this._generateVertNorms();
-      this._raycastVolume();
-      
-      var T = glMatrix.mat4.create();
-
-      T = pose;
-      var level = 0;
-
-      var A = new Float32Array(36); // 6 * 6
-      var b = new Float32Array(6);
-      var result = new Float32Array(6);
-      var icpData = {AE:0.0, icpCount:0};
-
-
-
-      for (let i = 0; i < 5; i++)
+      if (resetFlag == 0)
       {
-        var delta = glMatrix.mat4.create();
+        this._generateVertNorms();
+        this._raycastVolume();
+        
+        var T = glMatrix.mat4.create();
 
-        this._track(T, level);
-        this._reduce();
-        this._getReduction(A, b, icpData);
-        this._solve(A, b, result);
-        this._resultToMatrix(result, delta);
+        T = [...pose];
+        var level = 0;
 
-        glMatrix.mat4.mul(T, delta, T);
+        var A = new Float32Array(36); // 6 * 6
+        var b = new Float32Array(6);
+        var result = new Float32Array(6);
+        var icpData = {AE:0.0, icpCount:0};
+
+        for (let i = 0; i < 5; i++)
+        {
+          var delta = glMatrix.mat4.create();
+
+          this._track(T, level);
+          this._reduce();
+          this._getReduction(A, b, icpData);
+          this._solve(A, b, result);
+          this._resultToMatrix(result, delta);
+
+          glMatrix.mat4.mul(T, delta, T);
+        }
+
+        pose = [...T];
       }
-
-      pose = T;
-
+      
 
       this._integrateVolume(integrateFlag, resetFlag);
+
 
     }
 
@@ -661,6 +679,9 @@
 
       }
 
+
+
+
       this._calcPose();
 
 
@@ -669,7 +690,7 @@
 
 
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, gl.render_texture);
+      gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
       gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);

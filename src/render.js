@@ -9,11 +9,11 @@ const vertexShaderSource = `#version 310 es
    
 const fragmentShaderSource = `#version 310 es
     precision mediump float;
-    uniform highp usampler2D s;
+    uniform highp sampler2D s;
     in vec2 t;
     out vec4 outColor;
     void main(){
     vec4 tex = vec4(texture(s, t));
-    outColor = vec4(abs(vec3(tex.xyz) / 256.0f), 1.0);
+    outColor = vec4(abs(vec3(tex.xyz) / 1.0f), 1.0);
   }
   `;

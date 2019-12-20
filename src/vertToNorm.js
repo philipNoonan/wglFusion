@@ -1,5 +1,3 @@
-  // ComputeShader source
-  // language=GLSL
   const vertToNormSource = `#version 310 es
   layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
   layout (rgba32f, binding = 0) uniform readonly highp image2D vertexImage;

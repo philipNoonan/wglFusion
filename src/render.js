@@ -1,4 +1,3 @@
-// language=GLSL
 const vertexShaderSource = `#version 310 es
     in vec2 v;
     out vec2 t;

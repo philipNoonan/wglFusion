@@ -172,6 +172,9 @@
     <label for="selectVideoDevice">Capture device with depth stream</label>
     <select id="selectVideoDevice"></select>
   </div>
+  <div id="buttoncontainer">
+    <button onclick="resetVolume()">Reset Volume</button>
+  </div>
   <div id="tabcontainer">
     <input id="tab1" type="radio" name="tabs" value="basic" checked="checked" data-ontaboff="stopBasicTab" data-ontabon="startBasicTab"/>
     <label for="tab1">Render depth</label>
@@ -185,6 +188,7 @@
 
 <script src="node_modules/gl-matrix/gl-matrix-min.js"></script>
 <script src="node_modules/luqr/luqr.min.js"></script>
+
 <script src="depth-camera.js"></script>
 <script src="src/depthToVert.js"></script>
 <script src="src/vertToNorm.js"></script>
@@ -192,6 +196,7 @@
 <script src="src/integrateVolume.js"></script>
 <script src="src/trackP2P.js"></script>
 <script src="src/reduceP2P.js"></script>
+<script src="src/render.js"></script>
 
 
 
@@ -210,7 +215,11 @@
   }
 
 
-
+  function resetVolume() {
+    integrateFlag = 0;
+    resetFlag = 1;
+    pose = initPose;
+  }
 
   let tabs = document.getElementsByName("tabs");
   let videos = {depth: null, color: null};
@@ -260,6 +269,9 @@
 
   var renderProgram;
 
+  var resetFlag = 0;
+  var integrateFlag = 1;
+
 
 
   var camPam = [420, 240, 420, 420]; // cx cy fx fy
@@ -283,8 +295,10 @@
   var imageSize = [848, 480];
 
   var pose = glMatrix.mat4.create();
-  //glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0]);
+  var initPose = glMatrix.mat4.create();
 
+  glMatrix.mat4.translate(pose, pose, [volDim[0] / 2.0, volDim[1] / 2.0, 0]);
+  initPose = pose;
   
   
 
@@ -379,6 +393,13 @@
 
       gl.dispatchCompute(volSize[0] / 32, volSize[1] / 32, 1);
       gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+      if (resetFlag == 1)
+      {
+        resetFlag = 0;
+        integrateFlag = 1;
+      }
+
     }
 
 
@@ -614,14 +635,13 @@
         this._solve(A, b, result);
         this._resultToMatrix(result, delta);
 
-        glMatrix.mat4.mul(T, delta, T);
+        //glMatrix.mat4.mul(T, delta, T);
       }
 
       pose = T;
 
-      var iFlag = 1;
-      var rFlag = 0;
-      this._integrateVolume(iFlag, rFlag);
+
+      this._integrateVolume(integrateFlag, resetFlag);
 
     }
 
@@ -685,9 +705,7 @@
       }
 
 
-
-
-  // create WebGLShader for ComputeShader
+  // CREATE SHADERS
   const depthToVertShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(depthToVertShader, depthToVertSource);
   gl.compileShader(depthToVertShader);
@@ -696,7 +714,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   depthToVertProg = gl.createProgram();
   gl.attachShader(depthToVertProg, depthToVertShader);
   gl.linkProgram(depthToVertProg);
@@ -705,39 +722,6 @@
     return;
   }
 
-
-      // ComputeShader source
-  // language=GLSL
-  const vertToNormSource = `#version 310 es
-  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
-  layout (rgba32f, binding = 0) uniform readonly highp image2D vertexImage;
-  layout (rgba32f, binding = 1) uniform writeonly highp image2D normalImage;
-
-  void main() {
-    ivec2 u = ivec2(gl_GlobalInvocationID.xy);
-    
-    vec4 vert0 = imageLoad(vertexImage, u - ivec2(1, 0));
-    vec4 vert1 = imageLoad(vertexImage, u + ivec2(1, 0));
-    vec4 vert2 = imageLoad(vertexImage, u - ivec2(0, 1));
-    vec4 vert3 = imageLoad(vertexImage, u + ivec2(0, 1));
-    vec4 vert4 = imageLoad(vertexImage, u);
-
-    if (vert0.w > 0.0 && vert1.w > 0.0 && vert2.w > 0.0  && vert3.w > 0.0 && vert4.w > 0.0)
-    {
-      vec3 vecX = normalize(vert1.xyz - vert0.xyz);
-      vec3 vecY = normalize(vert3.xyz - vert2.xyz);
-
-      imageStore(normalImage, u, vec4(normalize(cross(vecY, vecX)), 0.0));
-    }
-    else
-    {
-      imageStore(normalImage, u, vec4(0.0));
-    }
-  }
-  `;
-
-
-  // create WebGLShader for ComputeShader
   const vertToNormShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(vertToNormShader, vertToNormSource);
   gl.compileShader(vertToNormShader);
@@ -746,7 +730,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   vertToNormProg = gl.createProgram();
   gl.attachShader(vertToNormProg, vertToNormShader);
   gl.linkProgram(vertToNormProg);
@@ -755,220 +738,6 @@
     return;
   }
 
-  const integrateSource = `#version 310 es
-  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
-  layout (r32f, binding = 0) uniform highp image3D volumeData;
-  layout (r32f, binding = 1) uniform highp image3D volumeWeightData;
-
-  layout (rgba32f, binding = 2) uniform readonly highp image2D vertexImage;
-  layout (rgba8ui, binding = 3) uniform readonly highp uimage2D trackImage;
-  layout (rgba32f, binding = 4) uniform writeonly highp image2D normalImage;
-
-  uniform int integrateFlag;
-  uniform int resetFlag;
-
-  uniform mat4 invT;
-  uniform vec4 cam; // cx cy fx fy
-
-  uniform int p2p;
-  uniform int p2v;
-
-  uniform float maxWeight;
-
-  uniform float volDim; // length in meters FLOAT!!!!
-  uniform float volSize; // voxel grid size
-
-  // // to store in es3.1 compatible read/write image formats, we need to pack the floats into a single r32i image
-  // // 
-  // vec2 convertIntToVec2(int inData)
-  // {
-  //   vec2 outData;
-    
-  //   int tX = uint(inData & 4294901760) >> 16; // 1111 1111 1111 1111 0000 0000 0000 0000 
-	//   int tY = uint(inData & 65535); // 0000 0000 0000 0000 1111 1111 1111 1111
-
-  //   outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
-  //   outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
-
-  //   return outData;
-  // }
-
-  // uint convertVec2ToInt(vec2 inData)
-  // {
-  //   inData.x = min(65535.0f, 1000.0f * inData.x);
-  //   inData.y = min(65535.0f, 10.0f * inData.y);
-
-  //   uint outData;
-	//   outData = uint(inData.x) << 16u | uint(inData.y);
-  //   return outData;
-  // }
-
-
-  vec3 projectPointImage(vec3 p)
-  {
-      return vec3(((cam.z * p.x) / p.z) + cam.x,
-                  ((cam.w * p.y) / p.z) + cam.y,
-                  p.z);
-  }
-
-  vec3 getVolumePosition(uvec3 p)
-  {
-      return vec3((float(p.x) + 0.5f) * volDim / volSize, (float(p.y) + 0.5f) * volDim / volSize, (float(p.z) + 0.5f) * volDim / volSize);
-  }
-
-  vec2 getSDF(uvec3 pos)
-  {
-      //uint dataIn = imageLoad(volumeData, ivec3(pos)).x;
-      //return convertIntToVec2(dataIn);
-
-      return vec2(imageLoad(volumeData, ivec3(pos)).x, imageLoad(volumeWeightData, ivec3(pos)).x);
-  }
-
-  bool inFrustrum(in vec4 pClip)
-  {
-      return abs(pClip.x) < pClip.w &&
-            abs(pClip.y) < pClip.w; 
-  }
-
-  void integrate()
-  {
-    int numberOfCameras = 1;
-
-    ivec2 depthSize = ivec2(imageSize(vertexImage).xy);
-    uvec3 pix = gl_GlobalInvocationID.xyz;
-
-    float diff[4]; // max number of cameras on one system
-
-    vec4 track[4];
-    int bestTrack;
-
-    for (pix.z = 0u; pix.z < uint(volSize); pix.z++)
-    {
-      for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
-      {
-      // get world position of centre of voxel 
-        vec3 worldPos = vec3(invT * vec4(getVolumePosition(pix), 1.0f)).xyz;
-        vec3 pixel = projectPointImage(worldPos);
-        ivec2 px = ivec2(pixel.x + 0.5f, pixel.y + 0.5f); // for rounding
-
-        //imageStore(volumeData, ivec3(pix), vec4(dMin, dMax, 0, 0));
-        // if we dont check if we hit the image here and just assume that if pixel is out of bounds the resultant texture read will be zero
-        if (px.x < 0 || px.x > depthSize.x - 1 || px.y < 0 || px.y > depthSize.y - 1)
-        {
-          diff[cameraDevice] = -10000.0f;
-          continue;
-        }
-
-        track[cameraDevice] = vec4(imageLoad(trackImage, px));
-
-        vec4 depthPoint = imageLoad(vertexImage, px);
-
-        if (depthPoint.z <= 0.0f)
-        {
-          diff[cameraDevice] = -10000.0f;
-          continue;
-        }
-
-        // if we get here, then the voxel is seen by this cameraDevice
-        // determin best cameraDevice
-        vec3 shiftVec = worldPos - depthPoint.xyz;
-        float tdiff = length(shiftVec);
-        diff[cameraDevice] = shiftVec.z < 0.0 ? tdiff : -tdiff;
-
-      }
-
-      float finalDiff = 10000.0f;
-      float validCameras = 0.0f;
-      for (int cameraDevice = 0; cameraDevice < numberOfCameras; cameraDevice++)
-      {
-        if (diff[cameraDevice] != 10000.0f)
-        {
-          if (abs(diff[cameraDevice]) < abs(finalDiff))
-          {
-            bestTrack = cameraDevice;
-            finalDiff = diff[cameraDevice];
-          }
-        }
-      }
-
-      float ctfo = 0.1f;
-      if (track[bestTrack] == vec4(0.5f, 0.5f, 0.5f, 1.0 ))
-      {
-          ctfo = 0.1f;
-      }
-      else if (track[bestTrack] == vec4(1.0f, 1.0f, 0.0f, 1.0))
-      {
-          ctfo = 0.001f;
-      }
-      else if (track[bestTrack] == vec4(1.0f, 0.0f, 0.0f, 1.0))
-      {
-          ctfo = 0.001f;
-      }
-
-      float dMin = -volDim / 20.0f;
-      float dMax = volDim / 10.0f;
-      // if diff within TSDF range, write to volume
-      if (finalDiff < dMax && finalDiff > dMin)
-      {
-        vec2 data = getSDF(pix);
-        float weightedDistance = 0.0f;
-        if (p2p == 1)
-        {
-          weightedDistance = (data.y * data.x + finalDiff) / (data.y + 1.0f);
-        }
-        else if (p2v == 1)
-        {
-          weightedDistance = (data.y * data.x + ctfo * finalDiff) / (data.y + ctfo);
-        }
-        if (weightedDistance < dMax)
-        {
-          data.x = clamp(weightedDistance, dMin, dMax);
-          data.y = min(data.y + 1.0f, (maxWeight));
-        }
-        else
-        {
-          data.x = 0.0f;
-          data.y = 0.0f;
-        }
-        //uint dataOut = convertVec2ToInt(data);  
-        imageStore(volumeData, ivec3(pix), vec4(data.x, 0, 0, 0));
-        imageStore(volumeWeightData, ivec3(pix), vec4(data.y));
-      }
-      else
-      {
-        // pix.z += 50; // need to be clever here, but this could work nicely woudl like to jump to just before the 
-        // imageStore(volumeData, ivec3(pix), uvec4(0));
-      }     
-    }
-  }
-
-  void resetVolume()
-  {
-    uvec2 pix = gl_GlobalInvocationID.xy;
-    if (pix.x < uint(volSize) && pix.y < uint(volSize))
-    {
-      for (int zDep = 0; zDep < int(volSize); zDep++)
-      {
-        imageStore(volumeData, ivec3(pix.x, pix.y, zDep), vec4(0));
-        imageStore(volumeWeightData, ivec3(pix.x, pix.y, zDep), vec4(0));
-      }
-    }
-  }
-
-  void main()
-  {
-    if (integrateFlag == 1)
-    {
-      integrate();
-    }
-    else if (resetFlag == 1)
-    {
-      resetVolume();
-    }
-  }
-  `;
-
-  // create WebGLShader for ComputeShader
   const integrateShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(integrateShader, integrateSource);
   gl.compileShader(integrateShader);
@@ -977,7 +746,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   integrateProg = gl.createProgram();
   gl.attachShader(integrateProg, integrateShader);
   gl.linkProgram(integrateProg);
@@ -986,215 +754,7 @@
     return;
   }
 
-  // ComputeShader source
-  // language=GLSL
-  const raycastSource = `#version 310 es
-  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
-
-  layout (r32f, binding = 0) uniform readonly highp image3D volumeData;
-  layout (rgba32f, binding = 1) uniform writeonly highp image2D refVertex;
-  layout (rgba32f, binding = 2) uniform writeonly highp image2D refNormal;
-
-  uniform mat4 view;
-
-  uniform float nearPlane;
-  uniform float farPlane;
-  uniform float step;
-  uniform float largeStep;
-  uniform float volDim; // VEC3 !!!
-  uniform float volSize;
-
-  // vec2 convertIntToVec2(uint inData)
-  // {
-  //   vec2 outData;
-    
-  //   uint tX = uint(inData & 4294901760u) >> 16u; // 1111 1111 1111 1111 0000 0000 0000 0000 
-	//   uint tY = uint(inData & 65535u); // 0000 0000 0000 0000 1111 1111 1111 1111
-
-  //   outData.x = float(tX) / 1000.0f; // scaling to allow for sensible distances without hitting max size for 16 bits
-  //   outData.y = float(tY) / 10.0f; // scaling to allow for sensible weights without hitting max size for 16 bits
-
-  //   return outData;
-  // }
-
-  // uint convertVec2ToInt(vec2 inData)
-  // {
-  //   inData.x = min(65535.0f, 1000.0f * inData.x);
-  //   inData.y = min(65535.0f, 10.0f * inData.y);
-
-  //   uint outData;
-	//   outData = uint(inData.x) << 16u | uint(inData.y);
-  //   return outData;
-  // }
-
-  float vs(uvec3 pos)
-  {  
-    //return convertIntToVec2(imageLoad(volumeData, ivec3(pos)).x).x;
-    return imageLoad(volumeData, ivec3(pos)).x;
-  }
-
-  float interpVol(vec3 pos)
-  {
-    vec3 scaled_pos = vec3((pos.x * volSize / volDim) - 0.5f, (pos.y * volSize / volDim) - 0.5f, (pos.z * volSize / volDim) - 0.5f);
-    ivec3 base = ivec3(floor(scaled_pos));
-    vec3 factor = fract(scaled_pos);
-    ivec3 lower = max(base, ivec3(0));
-    ivec3 upper = min(base + ivec3(1), ivec3(volSize) - ivec3(1));
-    return (
-          ((vs(uvec3(lower.x, lower.y, lower.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, lower.y, lower.z)) * (factor.x)) * (1.0f - factor.y)
-         + (vs(uvec3(lower.x, upper.y, lower.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, lower.z)) * (factor.x)) * (factor.y)) * (1.0f - factor.z)
-        + ((vs(uvec3(lower.x, lower.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, lower.y, upper.z)) * (factor.x)) * (1.0f - factor.y)
-         + (vs(uvec3(lower.x, upper.y, upper.z)) * (1.0f - factor.x) + vs(uvec3(upper.x, upper.y, upper.z)) * (factor.x)) * (factor.y)) * (factor.z)
-        );
-  }
-
-  vec4 raycast(uvec2 pos, int camera)
-  {
-    vec3 origin = vec3(view[3][0], view[3][1], view[3][2]);
-
-    vec3 direction = vec3((view * vec4(pos.x, pos.y, 1.0f, 0.0f)).xyz);
-
-      // intersect ray with a box
-      // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
-      // compute intersection of ray with all six bbox planes
-    vec3 invR = vec3(1.0f, 1.0f, 1.0f) / direction;
-    vec3 tbot = -1.0f * invR * origin;
-    vec3 ttop = invR * (vec3(volDim) - origin);
-    // re-order intersections to find smallest and largest on each axis
-    vec3 tmin = min(ttop, tbot);
-    vec3 tmax = max(ttop, tbot);
-    // find the largest tmin and the smallest tmax
-    float largest_tmin = max(max(tmin.x, tmin.y), max(tmin.x, tmin.z));
-    float smallest_tmax = min(min(tmax.x, tmax.y), min(tmax.x, tmax.z));
-    // check against near and far plane
-    float tnear = max(largest_tmin, nearPlane);
-    float tfar = min(smallest_tmax, farPlane);
-
-    if (tnear < tfar)
-    {
-
-      // first walk with largesteps until we found a hit
-      float t = tnear;
-      float stepsize = largeStep;
-
-      bool isInterp;
-      float f_t = interpVol(vec3(origin + direction * t));
-      float f_tt = 0.0f;
-      if (f_t >= 0.0f)
-      {  // ups, if we were already in it, then don't render anything here
-
-        for (; t < tfar; t += stepsize)
-        {
-          f_tt = interpVol(vec3(origin + direction * t));
-
-          if (f_tt < 0.0f) // got it, jump out of inner loop
-          {
-            break; // 
-          }
-          if (f_tt < 0.8f)
-          {
-            stepsize = step;
-          }
-          f_t = f_tt;
-        }
-        if (f_tt < 0.0f) // got it, calculate accurate intersection
-        {
-          t = t + stepsize * f_tt / (f_t - f_tt);
-          return vec4(origin + direction * t, t);
-        }
-      }
-    }
-    return vec4(0.0f, 0.0f, 0.0f, 0.0f);
-  }
-
-  vec3 getGradient(vec4 hit)
-  {
-    vec3 scaled_pos = vec3((hit.x * volSize / volDim) - 0.5f, (hit.y * volSize / volDim) - 0.5f, (hit.z * volSize / volDim) - 0.5f);
-    ivec3 baseVal = ivec3(floor(scaled_pos));
-    vec3 factor = fract(scaled_pos);
-    ivec3 lower_lower = max(baseVal - ivec3(1), ivec3(0));
-    ivec3 lower_upper = max(baseVal, ivec3(0));
-    ivec3 upper_lower = min(baseVal + ivec3(1), ivec3(volSize) - ivec3(1));
-    ivec3 upper_upper = min(baseVal + ivec3(2), ivec3(volSize) - ivec3(1));
-    ivec3 lower = lower_upper;
-    ivec3 upper = upper_lower;
-
-    vec3 gradient;
-
-    gradient.x =
-              (((vs(uvec3(upper_lower.x, lower.y, lower.z)) - vs(uvec3(lower_lower.x, lower.y, lower.z))) * (1.0f - factor.x)
-            + (vs(uvec3(upper_upper.x, lower.y, lower.z)) - vs(uvec3(lower_upper.x, lower.y, lower.z))) * factor.x) * (1.0f - factor.y)
-            + ((vs(uvec3(upper_lower.x, upper.y, lower.z)) - vs(uvec3(lower_lower.x, upper.y, lower.z))) * (1.0f - factor.x)
-            + (vs(uvec3(upper_upper.x, upper.y, lower.z)) - vs(uvec3(lower_upper.x, upper.y, lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
-            + (((vs(uvec3(upper_lower.x, lower.y, upper.z)) - vs(uvec3(lower_lower.x, lower.y, upper.z))) * (1.0f - factor.x)
-            + (vs(uvec3(upper_upper.x, lower.y, upper.z)) - vs(uvec3(lower_upper.x, lower.y, upper.z))) * factor.x) * (1.0f - factor.y)
-            + ((vs(uvec3(upper_lower.x, upper.y, upper.z)) - vs(uvec3(lower_lower.x, upper.y, upper.z))) * (1.0f - factor.x)
-            + (vs(uvec3(upper_upper.x, upper.y, upper.z)) - vs(uvec3(lower_upper.x, upper.y, upper.z))) * factor.x) * factor.y) * factor.z;
-
-    gradient.y =
-          (((vs(uvec3(lower.x, upper_lower.y, lower.z)) - vs(uvec3(lower.x, lower_lower.y, lower.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper_lower.y, lower.z)) - vs(uvec3(upper.x, lower_lower.y, lower.z))) * factor.x) * (1.0f - factor.y)
-        + ((vs(uvec3(lower.x, upper_upper.y, lower.z)) - vs(uvec3(lower.x, lower_upper.y, lower.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper_upper.y, lower.z)) - vs(uvec3(upper.x, lower_upper.y, lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
-        + (((vs(uvec3(lower.x, upper_lower.y, upper.z)) - vs(uvec3(lower.x, lower_lower.y, upper.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper_lower.y, upper.z)) - vs(uvec3(upper.x, lower_lower.y, upper.z))) * factor.x) * (1.0f - factor.y)
-        + ((vs(uvec3(lower.x, upper_upper.y, upper.z)) - vs(uvec3(lower.x, lower_upper.y, upper.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper_upper.y, upper.z)) - vs(uvec3(upper.x, lower_upper.y, upper.z))) * factor.x) * factor.y) * factor.z;
-
-    gradient.z =
-          (((vs(uvec3(lower.x, lower.y, upper_lower.z)) - vs(uvec3(lower.x, lower.y, lower_lower.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, lower.y, upper_lower.z)) - vs(uvec3(upper.x, lower.y, lower_lower.z))) * factor.x) * (1.0f - factor.y)
-        + ((vs(uvec3(lower.x, upper.y, upper_lower.z)) - vs(uvec3(lower.x, upper.y, lower_lower.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper.y, upper_lower.z)) - vs(uvec3(upper.x, upper.y, lower_lower.z))) * factor.x) * factor.y) * (1.0f - factor.z)
-        + (((vs(uvec3(lower.x, lower.y, upper_upper.z)) - vs(uvec3(lower.x, lower.y, lower_upper.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, lower.y, upper_upper.z)) - vs(uvec3(upper.x, lower.y, lower_upper.z))) * factor.x) * (1.0f - factor.y)
-        + ((vs(uvec3(lower.x, upper.y, upper_upper.z)) - vs(uvec3(lower.x, upper.y, lower_upper.z))) * (1.0f - factor.x)
-        + (vs(uvec3(upper.x, upper.y, upper_upper.z)) - vs(uvec3(upper.x, upper.y, lower_upper.z))) * factor.x) * factor.y) * factor.z;
-
-    return gradient * vec3(volDim / volSize, volDim / volSize, volDim / volSize) * (0.5f);
-  }
-
-  void main()
-  {
-    int numberOfCameras = 1;
-    uvec2 pix = gl_GlobalInvocationID.xy;
-    for (int camera = 0; camera < numberOfCameras; camera++)
-    {
-      // for (int z = 0; z < 128; z++)
-      // {
-      //   float deets = imageLoad(volumeData, ivec3(pix.xy, z)).x;
-      //   if (deets != 0.0f)
-      //   {
-      //     imageStore(refNormal, ivec2(pix), vec4(0.5,0.5,0.5, 1.0f));
-      //   }
-      // }
-
-      vec4 hit = raycast(pix, camera);
-      if (hit.w > 0.0f)
-      {
-        imageStore(refVertex, ivec2(pix), vec4(hit.xyz, 1.0f));
-
-        vec3 surfNorm = getGradient(hit);
-        if (length(surfNorm) == 0.0f)
-        {
-          imageStore(refNormal, ivec2(pix), vec4(0.0f));
-        }
-        else
-        {
-          imageStore(refNormal, ivec2(pix), vec4(normalize(surfNorm), 1.0f));
-        }
-      }
-      else
-      {
-        imageStore(refVertex, ivec2(pix), vec4(0.0f));
-        imageStore(refNormal, ivec2(pix), vec4(0.0f));
-      }
-      
-    }
-  }
-  `;
-    // create WebGLShader for ComputeShader
-    const raycastShader = gl.createShader(gl.COMPUTE_SHADER);
+  const raycastShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(raycastShader, raycastSource);
   gl.compileShader(raycastShader);
   if (!gl.getShaderParameter(raycastShader, gl.COMPILE_STATUS)) {
@@ -1202,7 +762,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   raycastProg = gl.createProgram();
   gl.attachShader(raycastProg, raycastShader);
   gl.linkProgram(raycastProg);
@@ -1211,128 +770,6 @@
     return;
   }
 
-        // ComputeShader source
-  // language=GLSL
-  const p2pTrackSource = `#version 310 es
-  layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
-  layout(binding = 0, rgba32f) readonly uniform highp image2D inVertex;
-  layout(binding = 1, rgba32f) readonly uniform highp image2D inNormal;
-
-  layout(binding = 2, rgba32f) readonly uniform highp image2D refVertex;
-  layout(binding = 3, rgba32f) readonly uniform highp image2D refNormal;
-
-  layout(binding = 4, rgba8ui) writeonly uniform highp uimage2D trackImage;
-
-  uniform mat4 T;
-  uniform float distThresh;
-  uniform float normThresh;
-  uniform int mip;
-  uniform vec4 cam; // cx cy fx fy
-
-  vec3 projectPointImage(vec3 p)
-  {
-      return vec3(((cam.z * p.x) / p.z) + cam.x,
-                  ((cam.w * p.y) / p.z) + cam.y,
-                  p.z);
-  }
-
-  struct reduType
-  {
-    float result;
-    float error;
-    float J[6];
-  };
-
-  layout(std430, binding = 0) buffer TrackData
-  {
-    reduType data[];
-  } trackOutput;
-
-
-  void main()
-  {
-    int numberOfCameras = 1;
-    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 imSize = imageSize(inVertex); // mipmapped sizes
-    ivec2 refSize = imageSize(refVertex); // full depth size
-
-    uint offset = uint((pix.y * imSize.x) + pix.x);
-
-    for (int camera = 0; camera < numberOfCameras; camera++)
-    {
-      uint offset = uint(camera * imSize.x * imSize.y) + uint((pix.y * imSize.x) + pix.x);
-      if (pix.x < imSize.x && pix.y < imSize.y)
-      {
-        vec4 normals = imageLoad(inNormal, ivec2(pix));
-        if (normals.x == 2.0f)
-        {
-          trackOutput.data[offset].result = -1.0f; // does this matter since we are in a low mipmap not full size???
-          imageStore(trackImage, ivec2(pix), uvec4(0, 0, 0, 0));
-        }
-        else
-        {
-          // depth vert in global space
-          vec4 projectedVertex = T * vec4(imageLoad(inVertex, ivec2(pix)).xyz, 1.0f);
-          // this depth vert in global space is then prejected back to normal depth space
-				  vec3 projPixel = projectPointImage(projectedVertex.xyz);
-          if (projPixel.x < 0.0f || int(projPixel.x) > refSize.x || projPixel.y < 0.0f || int(projPixel.y) > refSize.y)
-          {
-            trackOutput.data[offset].result = -2.0f;
-            imageStore(trackImage, ivec2(pix), uvec4(255, 0, 0, 255));
-          }
-          else
-          {
-				  // THIS IS NOT THE FIX!!!! THIS JUST DOES LOTS OF ITERATIONS WITHOUT TRYING TO UPDATE T, maybe, not his is probably ok, T is getting updated so projectedVertex is changing each iter
-            ivec2 refPixel = ivec2(pix.x << mip, pix.y << mip);//ivec2(projPixel.x + 0.5f, projPixel.y + 0.5f);
-            vec3 referenceNormal = imageLoad(refNormal, refPixel).xyz;
-            vec3 tmp = imageLoad(refVertex, refPixel).xyz;
-
-            if (referenceNormal.x == -2.0f)
-            {
-              trackOutput.data[offset].result = -3.0f;
-              imageStore(trackImage, ivec2(pix), uvec4(0, 255, 0, 255));
-            }
-            else
-            {
-						  vec3 refVert = imageLoad(refVertex, refPixel).xyz;
-              vec3 diff = refVert - projectedVertex.xyz;
-              vec4 currNormal = imageLoad(inNormal, ivec2(pix));
-              vec3 projectedNormal = vec3((T * vec4(currNormal.xyz, 0.0f)).xyz); // input mipmap sized pixel
-
-              if (length(diff) > distThresh)
-              {
-                trackOutput.data[offset].result = -4.0f;
-                imageStore(trackImage, ivec2(pix), uvec4(0, 0, 255, 255));
-              }
-              else if (dot(projectedNormal, referenceNormal) < normThresh)
-              {
-                trackOutput.data[offset].result = -5.0f;
-                imageStore(trackImage, ivec2(pix), uvec4(255, 255, 0, 255));
-              }
-              else
-              {
-                imageStore(trackImage, ivec2(pix), uvec4(127, 127, 127, 255));
-
-                trackOutput.data[offset].result = 1.0f;
-                trackOutput.data[offset].error = dot(referenceNormal, diff);
-
-                trackOutput.data[offset].J[0] = referenceNormal.x;
-                trackOutput.data[offset].J[1] = referenceNormal.y;
-                trackOutput.data[offset].J[2] = referenceNormal.z;
-
-                vec3 crossProjVertRefNorm = cross(projectedVertex.xyz, referenceNormal);
-                trackOutput.data[offset].J[3] = crossProjVertRefNorm.x;
-                trackOutput.data[offset].J[4] = crossProjVertRefNorm.y;
-                trackOutput.data[offset].J[5] = crossProjVertRefNorm.z;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  `;
-  // create WebGLShader for ComputeShader
   const p2pTrackShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(p2pTrackShader, p2pTrackSource);
   gl.compileShader(p2pTrackShader);
@@ -1341,7 +778,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   p2pTrackProg = gl.createProgram();
   gl.attachShader(p2pTrackProg, p2pTrackShader);
   gl.linkProgram(p2pTrackProg);
@@ -1350,124 +786,7 @@
     return;
   }
 
-  // ComputeShader source
-  // language=GLSL
-  const p2pReduceSource = `#version 310 es
-  layout (local_size_x = 112, local_size_y = 1, local_size_z = 1) in;
-
-  struct reduType
-  {
-    float result;
-    float error;
-    float J[6];
-  };
-
-  layout(std430, binding = 0) buffer TrackData
-  {
-    reduType data[];
-  } trackOutput;
-
-  layout(std430, binding = 1) buffer OutputData
-  {
-    float data[];
-  } outputData;
-
-  uniform vec2 imSize; 
-  shared float S[112][32];
-
-  void main()
-  {
-    uint sline = gl_LocalInvocationID.x; // 0 - 111
-
-    float sums[32];
-    for (int i = 0; i < 32; ++i) 
-    { 
-        sums[i] = 0.0f;
-    }
-
-    for (uint y = gl_WorkGroupID.x; y < uint(imSize.y); y += gl_NumWorkGroups.x)
-    {
-      for (uint x = sline; x < uint(imSize.x); x += gl_WorkGroupSize.x)
-      {
-        reduType row = trackOutput.data[(y * uint(imSize.x)) + x];
-        if (row.result < 1.0f)
-        {
-          if (row.result == -4.0f)
-          {
-            sums[29]++;
-          }
-          if (row.result == -5.0f)
-          {
-            sums[30]++;
-          }
-          if (row.result > -4.0f)
-          {
-            sums[31]++;
-          }
-          continue;
-        }
-
-        // Error part
-        sums[0] += row.error * row.error;
-
-        // JTe part
-        for (int i = 0; i < 6; ++i)
-        {
-          sums[i + 1] += row.error * row.J[i];
-        }
-
-        // JTJ part
-        sums[7] += row.J[0] * row.J[0];
-        sums[8] += row.J[0] * row.J[1];
-        sums[9] += row.J[0] * row.J[2];
-        sums[10] += row.J[0] * row.J[3];
-        sums[11] += row.J[0] * row.J[4];
-        sums[12] += row.J[0] * row.J[5];
-
-        sums[13] += row.J[1] * row.J[1];
-        sums[14] += row.J[1] * row.J[2];
-        sums[15] += row.J[1] * row.J[3];
-        sums[16] += row.J[1] * row.J[4];
-        sums[17] += row.J[1] * row.J[5];
-
-        sums[18] += row.J[2] * row.J[2];
-        sums[19] += row.J[2] * row.J[3];
-        sums[20] += row.J[2] * row.J[4];
-        sums[21] += row.J[2] * row.J[5];
-
-        sums[22] += row.J[3] * row.J[3];
-        sums[23] += row.J[3] * row.J[4];
-        sums[24] += row.J[3] * row.J[5];
-
-        sums[25] += row.J[4] * row.J[4];
-        sums[26] += row.J[4] * row.J[5];
-
-        sums[27] += row.J[5] * row.J[5];
-
-        sums[28] += 1.0f;
-        }
-      }
-
-      for (int i = 0; i < 32; ++i)
-      {
-        S[sline][i] = sums[i];
-      }
-     
-      barrier(); // wait for threads to finish
-
-      if (sline < 32u)
-      {
-        for(uint i = 1u; i < gl_WorkGroupSize.x; ++i)
-        {
-          S[0][sline] += S[i][sline];
-        }
-      outputData.data[sline + gl_WorkGroupID.x * 32u] = S[0][sline];
-    }
-  }
-  `;
-
-    // create WebGLShader for ComputeShader
-    const p2pReduceShader = gl.createShader(gl.COMPUTE_SHADER);
+  const p2pReduceShader = gl.createShader(gl.COMPUTE_SHADER);
   gl.shaderSource(p2pReduceShader, p2pReduceSource);
   gl.compileShader(p2pReduceShader);
   if (!gl.getShaderParameter(p2pReduceShader, gl.COMPILE_STATUS)) {
@@ -1475,7 +794,6 @@
     return;
   }
   
-  // create WebGLProgram for ComputeShader
   p2pReduceProg = gl.createProgram();
   gl.attachShader(p2pReduceProg, p2pReduceShader);
   gl.linkProgram(p2pReduceProg);
@@ -1484,21 +802,10 @@
     return;
   }
 
-  
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-  // ComputeShader source
-	  // language=GLSL
-	  var vertexShaderSource = `#version 310 es
-		  in vec2 v;
-      out vec2 t;
-
-      void main(){
-        gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0, 1);
-        t = v;
-      }
-	  `;
+  
   
       // Shaders and program are needed only if rendering depth texture.
       var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
@@ -1513,16 +820,7 @@
       var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
 	  
 	  
-	  var fragmentShaderSource = `#version 310 es
-        precision mediump float;
-        uniform highp sampler2D s;
-        in vec2 t;
-		    out vec4 outColor;
-
-        void main(){
-          vec4 tex = vec4(texture(s, t));
-          outColor = vec4(abs(vec3(tex.xyz) / 1.0f), 1.0);
-        }`
+	  
 	  
       gl.shaderSource(pixel_shader, fragmentShaderSource);
       gl.compileShader(pixel_shader);

@@ -10,6 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "gl-matrix": "^3.1.0",
-    "luqr": "^0.3.0"
+    "luqr": "^0.3.0",
+    "mathjs": "^6.3.0"
   }
 }

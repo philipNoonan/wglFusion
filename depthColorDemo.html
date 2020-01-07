@@ -509,7 +509,7 @@
     }
 
     _twistMatrix(_result) {
-      var sqrMat = [[0.0, _result[2], _result[1], _result[3]],
+      let sqrMat = [[0.0, _result[2], _result[1], _result[3]],
                  [_result[2], 0.0, _result[0], _result[4]],
                  [-_result[1], _result[1], 0.0, _result[5]],
                  [0.0, 0.0, 0.0, 0.0]];
@@ -522,8 +522,8 @@
 
       let A = Array.from(_A);
       let b = Array.from(_b);
-      var folded_A = luqr.fold(A, 6);
-      var res = Array(6);
+      let folded_A = luqr.fold(A, 6);
+      let res = Array(6);
       res = luqr.solve(folded_A,b);
       if (res != null)
       {
@@ -677,7 +677,7 @@
 
       gl.useProgram(integrateProg);
 
-      var invPose = glMatrix.mat4.create();
+      let invPose = glMatrix.mat4.create();
       glMatrix.mat4.invert(invPose, pose);
 
       gl.uniform4fv(gl.getUniformLocation(integrateProg, "cam"), camPam);
@@ -721,7 +721,7 @@
       gl.bindImageTexture(1, gl.refVertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
       gl.bindImageTexture(2, gl.refNormal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
       
-      var view = glMatrix.mat4.create();
+      let view = glMatrix.mat4.create();
       glMatrix.mat4.mul(view, pose, invK);
 
       let dMin = -volDim[0] / 20.0;

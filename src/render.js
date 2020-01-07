@@ -39,7 +39,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderDepth == 1)
     {
         vec4 depthData = vec4(texture(depth, t));
-        outColor = vec4(depthData.x, depthData.x, depthData.x, 1.0f);
+        outColor = vec4(depthData.x * 10.0f, depthData.x * 10.0f, depthData.x * 10.0f, 1.0f);
     }
 
     if (renderRefNorm == 1)

@@ -612,10 +612,17 @@
 
       gl.useProgram(p2pTrackProg);
 
+      let projRef = glMatrix.mat4.create();
+      let invPose = glMatrix.mat4.create();
+      glMatrix.mat4.invert(invPose, pose);
+
+      glMatrix.mat4.mul(projRef, K, invPose);
+
       // buffers
       gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
       // uniforms 
       gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "T"), false, _T);
+      gl.uniformMatrix4fv(gl.getUniformLocation(p2pTrackProg, "view"), false, projRef);
 
       gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "distThresh"), 0.01);
       gl.uniform1f(gl.getUniformLocation(p2pTrackProg, "normThresh"), 0.9);
@@ -795,6 +802,7 @@
           this._getReduction(A, b, icpData);
           this._solve(A, b, result);
           this._resultToMatrix(result, delta);
+
           glMatrix.mat4.mul(T, delta, T);
         }
         pose = [...T];
@@ -896,9 +904,9 @@
 
 
 
-      //this._calcPoseP2P();
+      this._calcPoseP2P();
 
-      this._calcPoseP2V();
+      //this._calcPoseP2V();
 
 
 		  gl.useProgram(renderProgram);

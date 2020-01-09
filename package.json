@@ -11,6 +11,7 @@
   "dependencies": {
     "gl-matrix": "^3.1.0",
     "luqr": "^0.3.0",
-    "mathjs": "^6.3.0"
+    "mathjs": "^6.3.0",
+    "stats.js": "^0.17.0"
   }
 }

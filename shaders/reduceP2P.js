@@ -91,22 +91,23 @@
         sums[27] += row.J[5] * row.J[5];
 
         sums[28] += 1.0f;
-        }
       }
+    }
 
-      for (int i = 0; i < 32; ++i)
-      {
-        S[sline][i] = sums[i];
-      }
+    for (int i = 0; i < 32; ++i)
+    {
+      S[sline][i] = sums[i];
+    }
      
-      barrier(); // wait for threads to finish
+    barrier(); // wait for threads to finish
 
-      if (sline < 32u)
+    if (sline < 32u)
+    {
+      for(uint i = 1u; i < gl_WorkGroupSize.x; ++i)
       {
-        for(uint i = 1u; i < gl_WorkGroupSize.x; ++i)
-        {
-          S[0][sline] += S[i][sline];
-        }
+        S[0][sline] += S[i][sline];
+      }
+
       outputData.data[sline + gl_WorkGroupID.x * 32u] = S[0][sline];
     }
   }

@@ -164,7 +164,6 @@
     <!-- Print error messages here. -->
   </div>
   <div>
-    <label>WebGL2.0-Compute Powered ICP wglFusion:</label>
     <canvas id="canvasGL" width="1696" height="720"></canvas>
   </div>
  
@@ -331,12 +330,14 @@
   // UI stuff
 
   var volLength = 0.5;
+  var fusionType = 'P2P';
 
   var paramGUI = function () {
     this.loadCamera = function() {
       connectedCallback();
       loadRealsense();
     }
+    this.fusionType = 'P2P';
     this.resetVol = function() {
       resetVolume();
     }
@@ -352,12 +353,17 @@
   var param = new paramGUI();
 
   gui.add(param, 'loadCamera').name('Load Realsense');
+  var fusionTypeClick = gui.add(param, 'fusionType', ['P2P', 'P2V', 'SPL']);
   var resetClick = gui.add(param, 'resetVol').name('Reset Volume');
   var integrateClick = gui.add(param, 'integrateVol').name('Integrate');
   var lengthSlider = gui.add(param, 'length', 0.05, 2.0);
   var resolutionSlider = gui.add(param, 'resolution', [64, 128, 256, 512]);
   var renderDepthClick = gui.add(param, 'renderDepth').name('Depth')
   var renderNormalClick = gui.add(param, 'renderNormal').name('Normals')
+
+  fusionTypeClick.onChange(function(value) {
+    fusionType = value;
+  });
 
   integrateClick.onChange(function(value) {
     integrateFlag = value;
@@ -415,7 +421,7 @@
 
   var renderDepthFlag = 1;
   var renderColorFlag = 0;
-  var renderRefNormFlag = 0;
+  var renderRefNormFlag = 1;
   var renderRefVertFlag = 0;
   var renderNormFlag = 0;
   var renderVertFlag = 0;
@@ -545,8 +551,12 @@ return Object.assign(document.createElement("video"), {
  
       
 
-      calcPoseP2P(gl, imageSize[0], imageSize[1]);
-      //this._calcPoseP2V();
+      if (fusionType == 'P2P') {
+        calcPoseP2P(gl, imageSize[0], imageSize[1]);
+      }
+      else if (fusionType == 'P2V') {
+        calcPoseP2V(gl, imageSize[0], imageSize[1]);
+      }
 
       uploadGraphPoints(gl, pose[12], pose[13], pose[14]);
 

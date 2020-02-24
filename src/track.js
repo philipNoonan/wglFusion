@@ -34,6 +34,17 @@ function twistMatrix(_result) {
   return sqrMat;
 }
 
+function twist(xi) {
+
+  var M = [
+    [0.0,    xi[2], -xi[1], 0.0], 
+    [-xi[2],  0.0,    xi[0], 0.0],
+    [xi[1], -xi[0],  0.0,   0.0],
+    [xi[3],  xi[4],  xi[5], 0.0]
+  ];
+  return M;
+}
+
 function solve(_A, _b, _result) {
   let A = Array.from(_A);
   let b = Array.from(_b);
@@ -139,14 +150,19 @@ function reduceP2V(gl) {
 
 function trackP2V(gl, width, height, _T, _level) {
     gl.useProgram(p2vTrackProg);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
+
+    gl.uniform1i(gl.getUniformLocation(p2vTrackProg, "volumeDataTexture"), 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_3D, gl.volume_texture);
+
     gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(2, gl.refVertex_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(2, gl.refNormal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
     gl.bindImageTexture(3, gl.render_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8UI);
+
     gl.uniformMatrix4fv(gl.getUniformLocation(p2vTrackProg, "T"), false, _T);
-    gl.uniform1f(gl.getUniformLocation(p2vTrackProg, "volDim"), sliderVolumeLength.value);
+    gl.uniform1f(gl.getUniformLocation(p2vTrackProg, "volDim"), volLength);
     gl.uniform1f(gl.getUniformLocation(p2vTrackProg, "volSize"), volSize[0]);
     gl.uniform1i(gl.getUniformLocation(p2vTrackProg, "mip"), _level);
     gl.dispatchCompute(width / 32, height / 32, 1);
@@ -170,6 +186,7 @@ function calcPoseP2P(gl, width, height) {
       var result = new Float32Array(6);
       var icpData = {AE:0.0, icpCount:0};
 
+      // use proper lvls ....
       for (let i = 0; i < 2; i++)
       {
         var delta = glMatrix.mat4.create();
@@ -191,15 +208,14 @@ function calcPoseP2P(gl, width, height) {
   }
 
 
-  function calcPoseP2V(gl) {
+
+  function calcPoseP2V(gl, width, height) {
 
     if (resetFlag == 0) {
-      generateVertNorms(gl);
-      raycastVolume(gl);
+      generateVertNorms(gl, width, height);
 
-      var T = glMatrix.mat4.create();
 
-      T = [...pose];
+      var T = glMatrix.mat4.clone(pose);
       var level = 0;
 
       var A = new Float32Array(36); // 6 * 6
@@ -212,18 +228,27 @@ function calcPoseP2P(gl, width, height) {
       var tracked = false;
 
 
+
       for (let i = 0; i < 2; i++)
       {
-        var twistedResult = this._twistMatrix(result);
-        let tempT = math.flatten(math.expm(twistedResult));
 
-        var currT = glMatrix.mat4.create();
+        var twistedResult = twist(result);
+        let tempTmat = math.expm(twistedResult);
+
+        let tempTtemp = glMatrix.mat4.fromValues(tempTmat.get([0,0]), tempTmat.get([0,1]), tempTmat.get([0,2]), tempTmat.get([0,3]),
+                                             tempTmat.get([1,0]), tempTmat.get([1,1]), tempTmat.get([1,2]), tempTmat.get([1,3]),
+                                             tempTmat.get([2,0]), tempTmat.get([2,1]), tempTmat.get([2,2]), tempTmat.get([2,3]),
+                                             tempTmat.get([3,0]), tempTmat.get([3,1]), tempTmat.get([3,2]), tempTmat.get([3,3])
+          );
         
-        for (var iter=0; iter<tempT.length; iter++) currT[iter] = tempT[iter];      
+          let currT = glMatrix.mat4.create();
+          glMatrix.mat4.multiply(currT, tempTtemp, T);    
 
         trackP2V(gl, width, height, currT, level);
         reduceP2V(gl);
         getReduction(gl, A, b, icpData);
+
+        //console.log(icpData);
 
         let scaling = 1.0 / (Math.max(...A) > 0.0 ? Math.max(...A) : 1.0);
 
@@ -252,15 +277,26 @@ function calcPoseP2P(gl, width, height) {
           tracked = false;
         }
 
-        //this._resultToMatrix(result, delta);
-        //glMatrix.mat4.mul(T, delta, T);
+        // this._resultToMatrix(result, delta);
+        // glMatrix.mat4.mul(T, delta, T);
       }
-      //pose = [...T];
+
+      let tr = twist(result);
+        let trmat = math.expm(tr);
+
+        let temptrmat = glMatrix.mat4.fromValues(
+        trmat.get([0,0]), trmat.get([0,1]), trmat.get([0,2]), trmat.get([0,3]),
+        trmat.get([1,0]), trmat.get([1,1]), trmat.get([1,2]), trmat.get([1,3]),
+        trmat.get([2,0]), trmat.get([2,1]), trmat.get([2,2]), trmat.get([2,3]),
+        trmat.get([3,0]), trmat.get([3,1]), trmat.get([3,2]), trmat.get([3,3])
+          );
+
+          glMatrix.mat4.multiply(pose, temptrmat, T);
 
 
     }
     else {
-      this._getClickedPoint();
+      getClickedPoint(gl);
     }
     integrateVolume(gl, integrateFlag, resetFlag);
   }

@@ -124,7 +124,6 @@ void main()
         uint offset = uint(camera * imSize.x * imSize.y) + ((pix.y * imSize.x) + pix.x);
         trackOutput[offset].result = -4;
 
-
         //if (pix.x >= 0 && pix.x < imageSize.x - 1 && pix.y >= 0 && pix.y < imageSize.y)
         if (all(greaterThanEqual(pix, uvec2(0u))) && all(lessThan(pix, imSize)))
         {
@@ -137,9 +136,12 @@ void main()
             }
             else
             {
+
                 vec4 cameraPoint = imageLoad(vertexMap, ivec2(pix));
                 vec4 projectedVertex = T * vec4(cameraPoint.xyz, 1.0f);
 
+
+                
                 bool isInterpolated;
   
                 // cvp is in texel space 0 - 127

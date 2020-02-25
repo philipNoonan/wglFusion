@@ -110,7 +110,7 @@ function reduceP2P(gl) {
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboReductionOutput);
     gl.dispatchCompute(8, 1, 1);
-    gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    gl.memoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT);
 }
 
 function trackP2P(gl, width, height, _T, _level) {
@@ -299,4 +299,197 @@ function calcPoseP2P(gl, width, height) {
       getClickedPoint(gl);
     }
     integrateVolume(gl, integrateFlag, resetFlag);
+  }
+
+
+
+
+  function genIndexMap(gl, invT) {
+
+    gl.useProgram(indexMapGenProg);
+
+    gl.enable(gl.DEPTH_TEST);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gl.indexMapFBO);
+    gl.clearColor(-1.0, -1.0, -1.0, -1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.viewport(0, 0, imageSize[0] * 4, imageSize[1] * 4);
+
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "invT"), false, invT);
+    gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "P"), false, matP); // calibrated persepective
+    gl.uniform2fv(gl.getUniformLocation(indexMapGenProg, "imSize"), imageSize);
+    gl.uniform4fv(gl.getUniformLocation(indexMapGenProg, "cam"), camPam);
+    gl.uniform1f(gl.getUniformLocation(indexMapGenProg, "maxDepth"), 4.0); // SET ME PROPERLY
+
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
+
+    gl.drawArrays(gl.POINTS, 0, gl.mapSize);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  }
+
+  function updateGlobalMap(gl, T) {
+
+    let invT = glMatrix.mat4.create();
+    glMatrix.mat4.invert(invT, T);
+
+    gl.useProgram(updateGlobalMapProg);
+    gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "T"), false, T);
+    gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "invT"), false, invT);
+    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "timeStamp"), gl.frameCounter);
+    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "firstFrame"), gl.firstFrame);
+    gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "sigma"), 0.6);
+    gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "c_stable"), gl.cStable);
+    gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "K"), false, K);
+    gl.uniform1ui(gl.getUniformLocation(updateGlobalMapProg, "maxMapSize"), 5e6);
+
+
+
+    gl.bindImageTexture(0, gl.indexMap_texture, 0, false, 0, gl.READ_ONLY, gl.R32F);
+    gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(2, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(3, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[gl.buffSwitch]);
+    gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
+
+    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 0, gl.atomicGMCounter[gl.buffSwitch]);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
+
+    gl.dispatchCompute(imageSize[0] / 32, imageSize[1] / 32, 1); // DIVUP????
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+
+
+
+
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[gl.buffSwitch]);
+    gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
+
+    console.log(gl.mapSize[0]);
+
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[gl.buffSwitch]);
+    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
+
+    
+
+  }
+
+  function removeUnnecessaryPoints(gl) {
+
+    gl.useProgram(removeUnnecessaryPointsProg);
+
+    buffs = [gl.buffSwitch, (gl.buffSwitch + 1) % 2];
+
+    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "timeStamp"), gl.frameCounter);
+    gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "c_Stable"), gl.cStable);
+
+
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
+    let blankData = new Uint32Array(0);
+    gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
+
+    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 1, gl.atomicGMCounter[buffs[1]]);
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[buffs[0]]);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
+
+    gl.dispatchCompute(divup(gl.mapSize[0], 400), 1, 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+
+
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
+    gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
+
+
+    gl.buffSwitch = buffs[1];
+
+
+
+  }
+
+  function genVirtualFrame(gl, invT) {
+
+    gl.useProgram(genVirtualFrameProg);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, gl.virtualFrameFBO);
+    gl.clearColor(0,0,0,0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.viewport(0, 0, imageSize[0], imageSize[1]);
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(genVirtualFrameProg, "invT"), false, invT);
+    gl.uniform4fv(gl.getUniformLocation(genVirtualFrameProg, "cam"), camPam);
+    gl.uniform2fv(gl.getUniformLocation(genVirtualFrameProg, "imSize"), imageSize);
+    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "maxDepth"), 4.0);
+    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "c_Stable"), gl.cStable);
+
+    gl.drawArrays(gl.POINTS, 0, gl.mapSize[0]);
+
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  }
+
+  function calcPoseSplat(gl) {
+
+
+    let invPose = glMatrix.mat4.create();
+    glMatrix.mat4.invert(invPose, pose);
+
+
+    if (resetFlag == 0) {
+
+      generateVertNorms(gl, imageSize[0], imageSize[1]);
+
+      genIndexMap(gl, invPose);
+      
+      var T = glMatrix.mat4.create();
+
+      T = [...pose];
+      var level = 0;
+
+      var A = new Float32Array(36); // 6 * 6
+      var b = new Float32Array(6);
+      var result = new Float32Array(6);
+      var icpData = {AE:0.0, icpCount:0};
+
+      // use proper lvls ....
+      for (let i = 0; i < 2; i++)
+      {
+        var delta = glMatrix.mat4.create();
+        trackP2P(gl, imageSize[0], imageSize[1], T, level);
+        reduceP2P(gl);
+        getReduction(gl, A, b, icpData);
+        solve(A, b, result);
+        resultToMatrix(result, delta);
+
+        glMatrix.mat4.mul(T, delta, T);
+      }
+      pose = [...T];
+    }
+    else {
+      getClickedPoint(gl);
+    }
+
+
+
+
+    if (integrateFlag) {
+      updateGlobalMap(gl, pose); // frameCounter is counting window draws, not realsense frame number
+      removeUnnecessaryPoints(gl);
+    }
+
+    genVirtualFrame(gl, invPose);
+
+    
+
   }

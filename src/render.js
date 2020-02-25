@@ -7,7 +7,7 @@
     let scaledZ = normalize(_z, initPose[14]+0.1, initPose[14]-0.1);
 
     gl.uniform4fv(gl.getUniformLocation(plottingBufferProg, "newData"), [scaledX, scaledY, scaledZ, 0.0]);
-    gl.uniform1i(gl.getUniformLocation(plottingBufferProg, "pingPong"), frameCounter % 2);
+    gl.uniform1i(gl.getUniformLocation(plottingBufferProg, "pingPong"), gl.frameCounter % 2);
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGraphX);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGraphY);

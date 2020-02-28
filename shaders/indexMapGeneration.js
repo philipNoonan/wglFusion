@@ -55,6 +55,9 @@ void main()
 		gl_Position = tempPos;
 	}
 
+	gl_Position = vec4(elems[idx].vert.x, elems[idx].vert.y, 0, 1);
+	//gl_PointSize = 10.0f;
+
 	
 }
    `;
@@ -64,7 +67,7 @@ precision highp float;
 
 flat in int idx;
 
-out vec4 outIndex;
+layout(location = 0) out vec4 outIndex;
 
 void main()
 {

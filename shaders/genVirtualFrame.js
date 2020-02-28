@@ -68,7 +68,7 @@ void main(void)
 		gsData = elems[index].data.xyzw;
 
 
-		vec3 x1 = normalize(vec3((gsNorm.y - gsNorm.z), -gsNorm.x, gsNorm.x)) * radius * 1.41421356;
+		vec3 x1 = normalize(vec3((gsNorm.y - gsNorm.z), -gsNorm.x, gsNorm.x)) * radius * 1.41421356f;
 	    
 	    vec3 y1 = cross(gsNorm.xyz, x1);
 	
@@ -128,7 +128,7 @@ void main(void)
 	float z = corrected_pos.z;
 
 
-	outPos = vec4((gl_FragCoord.x - cam.x) * z * (1.f / cam.z), (gl_FragCoord.y - cam.y) * z * (1.f / cam.w), z, gsData.x);
+	outPos = vec4((gl_FragCoord.x - cam.x) * z * (1.f / cam.z), (gl_FragCoord.y - cam.y) * z * (1.0f / cam.w), z, gsData.x);
 	outNorm = gsNorm;
 	outZZZ = vec4(gsVert.zzz, 0.0);
 	outcolor = gsColor;

@@ -154,9 +154,9 @@ void main(void)
 {
 	ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
 	// current vertex and normal
-	vec3 inputVert = imageLoad(mVertMap, uv).xyz;
-	vec3 inputNorm = imageLoad(mNormMap, uv).xyz;
-	vec3 inputColor = imageLoad(mColorMap, uv).rgb;	// Note: Assuming "BGR" input
+	vec3 inputVert = vec3(imageLoad(mVertMap, uv).xyz);
+	vec3 inputNorm = vec3(imageLoad(mNormMap, uv).xyz);
+	vec3 inputColor = vec3(imageLoad(mColorMap, uv).rgb);	// Note: Assuming "BGR" input
 	//vec4 status = imageLoad(mTrackStatusmap, uv).xyzw;
 	ivec2 bestPix;
 
@@ -180,7 +180,7 @@ void main(void)
         // elems[idx].data.w = 16.0f;	// timestamp
         
 		elems[idx].vert = T * vec4(inputVert, 1.0f);
-		elems[idx].norm = vec4(mat3(T) * inputNorm, 0.0f);
+		elems[idx].norm = vec4(inputNorm.xyz, 0.0);//vec4(mat3(T) * inputNorm, 0.0f);
 		elems[idx].color = vec4(inputColor, 1.0f);
 		elems[idx].data.x = alpha * 10.0f;		// confidence
 		elems[idx].data.y = rad;		// radius
@@ -331,7 +331,6 @@ void main(void)
 		else if (atomicCounter(g_idx) < maxMapSize) // New points
 		{
 			uint idx = atomicCounterIncrement(g_idx);
-
 			elems[idx].vert = T * vec4(inputVert, 1.0f);
 			elems[idx].norm = vec4(mat3(T) * inputNorm, 0.0f);
 			elems[idx].color = vec4(inputColor, 1.0f);

@@ -6,9 +6,7 @@
     const constraints = {
       audio: false,
       video: {
-        deviceId: {
-          exact: id
-        },
+        groupId: id,
         width: w,
         height: h,
         frameRate: {ideal: 30},

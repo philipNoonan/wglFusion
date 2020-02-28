@@ -313,7 +313,9 @@ function calcPoseP2P(gl, width, height) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, gl.indexMapFBO);
     gl.clearColor(-1.0, -1.0, -1.0, -1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.viewport(0, 0, imageSize[0] * 4, imageSize[1] * 4);
+    let w = imageSize[0] * 4;
+    let h = imageSize[1] * 4;
+    gl.viewport(0, 0, w, h);
 
 
     gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "invT"), false, invT);
@@ -325,7 +327,8 @@ function calcPoseP2P(gl, width, height) {
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
 
-    gl.drawArrays(gl.POINTS, 0, gl.mapSize);
+    gl.drawArrays(gl.POINTS, 0, gl.mapSize[0]); // this needs to be the number of points in the map
+    //gl.drawArrays(gl.POINTS, 0, 848*480);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
@@ -339,19 +342,20 @@ function calcPoseP2P(gl, width, height) {
     gl.useProgram(updateGlobalMapProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "T"), false, T);
     gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "invT"), false, invT);
-    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "timeStamp"), gl.frameCounter);
+    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "timestamp"), gl.frameCounter);
     gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "firstFrame"), gl.firstFrame);
     gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "sigma"), 0.6);
     gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "c_stable"), gl.cStable);
     gl.uniformMatrix4fv(gl.getUniformLocation(updateGlobalMapProg, "K"), false, K);
-    gl.uniform1ui(gl.getUniformLocation(updateGlobalMapProg, "maxMapSize"), 5e6);
-
+    gl.uniform1ui(gl.getUniformLocation(updateGlobalMapProg, "maxMapSize"), 5000000);
 
 
     gl.bindImageTexture(0, gl.indexMap_texture, 0, false, 0, gl.READ_ONLY, gl.R32F);
     gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(2, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(3, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+
+
 
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[gl.buffSwitch]);
     gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
@@ -360,8 +364,8 @@ function calcPoseP2P(gl, width, height) {
     gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 0, gl.atomicGMCounter[gl.buffSwitch]);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
 
-    gl.dispatchCompute(imageSize[0] / 32, imageSize[1] / 32, 1); // DIVUP????
-    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+    gl.dispatchCompute(divup(imageSize[0], 32), divup(imageSize[1], 32), 1);
+    gl.memoryBarrier(gl.ATOMIC_COUNTER_BARRIER_BIT);
 
 
 
@@ -372,9 +376,9 @@ function calcPoseP2P(gl, width, height) {
 
     console.log(gl.mapSize[0]);
 
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[gl.buffSwitch]);
-    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
+    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[gl.buffSwitch]);
+    gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
+    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
 
     
 
@@ -386,12 +390,12 @@ function calcPoseP2P(gl, width, height) {
 
     buffs = [gl.buffSwitch, (gl.buffSwitch + 1) % 2];
 
-    gl.uniform1i(gl.getUniformLocation(updateGlobalMapProg, "timeStamp"), gl.frameCounter);
-    gl.uniform1f(gl.getUniformLocation(updateGlobalMapProg, "c_Stable"), gl.cStable);
-
+    gl.uniform1i(gl.getUniformLocation(removeUnnecessaryPointsProg, "timestamp"), gl.frameCounter);
+    gl.uniform1f(gl.getUniformLocation(removeUnnecessaryPointsProg, "c_stable"), gl.cStable);
 
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
-    let blankData = new Uint32Array(0);
+    let blankData = new Uint32Array(1);
+    
     gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
@@ -401,18 +405,14 @@ function calcPoseP2P(gl, width, height) {
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
 
     gl.dispatchCompute(divup(gl.mapSize[0], 400), 1, 1);
-    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
     gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-
     gl.buffSwitch = buffs[1];
-
-
-
   }
 
   function genVirtualFrame(gl, invT) {
@@ -424,33 +424,40 @@ function calcPoseP2P(gl, width, height) {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.viewport(0, 0, imageSize[0], imageSize[1]);
 
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.refVertex_texture);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, gl.virtualDepthFrame_texture);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, gl.virtualColorFrame_texture);
+
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
 
     gl.uniformMatrix4fv(gl.getUniformLocation(genVirtualFrameProg, "invT"), false, invT);
     gl.uniform4fv(gl.getUniformLocation(genVirtualFrameProg, "cam"), camPam);
     gl.uniform2fv(gl.getUniformLocation(genVirtualFrameProg, "imSize"), imageSize);
     gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "maxDepth"), 4.0);
-    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "c_Stable"), gl.cStable);
+    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "c_stable"), gl.cStable);
 
     gl.drawArrays(gl.POINTS, 0, gl.mapSize[0]);
 
-
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
   }
 
   function calcPoseSplat(gl) {
 
+    generateVertNorms(gl, imageSize[0], imageSize[1]);
 
     let invPose = glMatrix.mat4.create();
     glMatrix.mat4.invert(invPose, pose);
 
+    genIndexMap(gl, invPose);
 
     if (resetFlag == 0) {
 
-      generateVertNorms(gl, imageSize[0], imageSize[1]);
 
-      genIndexMap(gl, invPose);
       
       var T = glMatrix.mat4.create();
 
@@ -487,6 +494,7 @@ function calcPoseP2P(gl, width, height) {
       updateGlobalMap(gl, pose); // frameCounter is counting window draws, not realsense frame number
       removeUnnecessaryPoints(gl);
     }
+
 
     genVirtualFrame(gl, invPose);
 

@@ -169,7 +169,7 @@
  
   <script src="node_modules/gl-matrix/gl-matrix-min.js"></script>
   <script src="node_modules/luqr/luqr.min.js"></script>
-  <script src="node_modules/mathjs/dist/math.js"></script>
+  <script src="node_modules/mathjs/dist/math.min.js"></script>
   <script src="node_modules/stats.js/build/stats.min.js"></script>
   <script src="node_modules/dat.gui/build/dat.gui.min.js"></script>
 
@@ -202,6 +202,9 @@
   <script src="shaders/indexMapGeneration.js"></script>
   <script src="shaders/globalMap.js"></script>
   <script src="shaders/genVirtualFrame.js"></script>
+
+  <script src="shaders/tfTest.js"></script>
+
 
   <script src="shaders/renderScreen.js"></script>
   <script src="shaders/getClickedPoint.js"></script>
@@ -350,9 +353,6 @@
     pose = [...initPose];
     gl.firstFrame = 1;
 
-    //volSize = [volResolution, volResolution, volResolution]
-  
-
   
   }
 
@@ -495,6 +495,8 @@
   var plottingRenderProgram;
   var renderSkeletonProgram;
 
+  var tfTestProg;
+
   var resetFlag = 0;
   var integrateFlag = 1;
 
@@ -586,7 +588,7 @@ videos.color.oncanplay = _ => { frameAvailableColor = true; }
 videos.depth = this._createOffscreenVideo();
 videos.depth.oncanplay = _ => { frameAvailableDepth = true; }
 
-videos.color.addEventListener("play", this.frameLoop); // fires when the color feed becomes available
+videos.depth.addEventListener("play", this.frameLoop); // fires when the color feed becomes available
 
 }
 
@@ -644,9 +646,9 @@ return Object.assign(document.createElement("video"), {
         calcPoseSplat(gl);
       }
 
-      // if (gl.firstFrame == 1) {
-      //   gl.firstFrame = 0;
-      // }
+      if (gl.firstFrame == 1) {
+        gl.firstFrame = 0;
+      }
 
       uploadGraphPoints(gl, pose[12], pose[13], pose[14]);
 
@@ -736,8 +738,8 @@ return Object.assign(document.createElement("video"), {
 
   }
 
-
   function setTextures(gl) {
+
 
     var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
@@ -768,16 +770,14 @@ return Object.assign(document.createElement("video"), {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
       var indexMapFBO = gl.createFramebuffer();
+      gl.activeTexture(gl.TEXTURE0);
       gl.bindFramebuffer(gl.FRAMEBUFFER, indexMapFBO);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, indexMap_texture, 0);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, indexMap_depthTexture, 0);
-      gl.drawBuffers([
-      gl.COLOR_ATTACHMENT0,
-    ]);
-      
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, indexMap_depthTexture, 0);     
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
       var virtualFrameFBO = gl.createFramebuffer();
+      gl.activeTexture(gl.TEXTURE0);
       gl.bindFramebuffer(gl.FRAMEBUFFER, virtualFrameFBO);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, refVertex_texture, 0);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, refNormal_texture, 0);
@@ -791,7 +791,6 @@ return Object.assign(document.createElement("video"), {
       gl.COLOR_ATTACHMENT2,
       gl.COLOR_ATTACHMENT3
     ]);
-      
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 
@@ -814,12 +813,15 @@ return Object.assign(document.createElement("video"), {
       gl.volumeWeight_texture = volumeWeight_texture;
       gl.refVertex_texture = refVertex_texture;
       gl.refNormal_texture = refNormal_texture;
+      gl.virtualDepthFrame_texture = virtualDepthFrame_texture;
+      gl.virtualColorFrame_texture = virtualColorFrame_texture;
       gl.render_texture = render_texture;
 
       gl.indexMap_texture = indexMap_texture;
 
 
       gl.indexMapFBO = indexMapFBO;
+      gl.virtualFrameFBO = virtualFrameFBO;
       gl.framebuffer = framebuffer;
       gl.framebufferGraph = framebufferGraph;
   }
@@ -980,6 +982,30 @@ return Object.assign(document.createElement("video"), {
       renderProgram = createRenderProgram(gl, vertexShaderSource, fragmentShaderSource);
       renderSkeletonProgram = createRenderProgram(gl, skeletonVertexShaderSource, skeletonFragmentShaderSource);
 
+
+
+      // var varyings = ["iddy"];
+      // tfTestProg = createRenderProgram(gl, tfTestVertexShaderSource, tfTestFragmentShaderSource, varyings);
+
+      // var bufferTF = gl.createBuffer();
+
+      //   // Feedback empty buffer
+      //   gl.bindBuffer(gl.ARRAY_BUFFER, bufferTF);
+      //   gl.bufferData(gl.ARRAY_BUFFER, 32 * 4, gl.STATIC_COPY);
+      //   gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+      //   // -- Init TransformFeedback: Track output buffer
+      //   var transformFeedback = gl.createTransformFeedback();
+        
+      //   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, transformFeedback);
+      //   gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, bufferTF);
+      //   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+      //   gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+
+      //   gl.transformFeedback = transformFeedback;
+      //   gl.bufferTF = bufferTF;
+
+      var transformed
       gl.firstFrame = 1;
       gl.frameCounter = 1;
   }
@@ -1040,6 +1066,10 @@ return Object.assign(document.createElement("video"), {
     }
 
   function loadRealsense() {
+
+
+
+
     for (let i = 0; i < videoDevices.length; i++) {
       loadStream(videoDevices[i])
     }
@@ -1049,10 +1079,10 @@ return Object.assign(document.createElement("video"), {
     navigator.mediaDevices.enumerateDevices()
       .then(function(devices) {
         devices.forEach(function(device) {
-          //console.log(device.kind + ": " + device.label +
-          //            " id = " + device.deviceId);
+          console.log(device.kind + ": " + device.label +
+                      " id = " + device.groupId);
           if (device.kind == "videoinput") {
-            videoDevices.push(device.deviceId);
+            videoDevices.push(device.groupId);
             //loadStream(deviceId);
           }
         });

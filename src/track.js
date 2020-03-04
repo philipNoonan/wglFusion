@@ -374,13 +374,15 @@ function calcPoseP2P(gl, width, height) {
     gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    console.log(gl.mapSize[0]);
+    // console.log(gl.mapSize[0]);
 
-    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[gl.buffSwitch]);
-    gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
-    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[0]);
+    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
 
-    
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[1]);
+    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr1);
+    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
 
   }
 
@@ -393,13 +395,12 @@ function calcPoseP2P(gl, width, height) {
     gl.uniform1i(gl.getUniformLocation(removeUnnecessaryPointsProg, "timestamp"), gl.frameCounter);
     gl.uniform1f(gl.getUniformLocation(removeUnnecessaryPointsProg, "c_stable"), gl.cStable);
 
-    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
     let blankData = new Uint32Array(1);
-    
+    gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[buffs[1]]);
     gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 1, gl.atomicGMCounter[buffs[1]]);
+    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 0, gl.atomicGMCounter[buffs[1]]);
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[buffs[0]]);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
@@ -424,14 +425,14 @@ function calcPoseP2P(gl, width, height) {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.viewport(0, 0, imageSize[0], imageSize[1]);
 
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, gl.refVertex_texture);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, gl.virtualDepthFrame_texture);
-    gl.activeTexture(gl.TEXTURE3);
-    gl.bindTexture(gl.TEXTURE_2D, gl.virtualColorFrame_texture);
+    // gl.activeTexture(gl.TEXTURE0);
+    // gl.bindTexture(gl.TEXTURE_2D, gl.refVertex_texture);
+    // gl.activeTexture(gl.TEXTURE1);
+    // gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
+    // gl.activeTexture(gl.TEXTURE2);
+    // gl.bindTexture(gl.TEXTURE_2D, gl.virtualDepthFrame_texture);
+    // gl.activeTexture(gl.TEXTURE3);
+    // gl.bindTexture(gl.TEXTURE_2D, gl.virtualColorFrame_texture);
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
 

@@ -96,8 +96,9 @@ const fragmentShaderSource = `#version 310 es
         outColor = vec4(abs(vertsData.xyz), 1.0f);
     }
 
+    //outColor = vec4(texture(indexMap, t));
     
-   // outColor = vec4(imageLoad(indexMap, ivec2(t_image * 4.0f)).x, 0, 0, 1);
+   //outColor = vec4(smoothStep(imageLoad(indexMap, ivec2(t_image * 4.0f)).x, 0, 5e6), 0, 0, 1);
 
   // vec4 refVertsData = vec4(imageLoad(refVertexMap, ivec2(t_image + 0.5f)));
   // outColor = vec4(abs(refVertsData.xyz), 1.0f);

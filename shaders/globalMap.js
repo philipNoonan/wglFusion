@@ -5,6 +5,7 @@ layout(binding = 0, r32f) readonly uniform highp image2D indexMap;	// Index map
 layout(binding = 1, rgba32f) readonly uniform highp image2D mVertMap;	// Vertex map (measured)
 layout(binding = 2, rgba32f) readonly uniform highp image2D mNormMap;	// Normal map (measured)
 layout(binding = 3, rgba8) readonly uniform highp image2D mColorMap;	// RGBA color map (measured) 
+
 //layout(binding = 4, rgba8) readonly uniform highp image2D mTrackStatusmap; // vertex tracking status (calculated)
 
 //layout (binding = 5, rgba32f) writeonly uniform highp image2D statusMap;	// Dynamics status map
@@ -114,7 +115,7 @@ bool closeEachOther(int idxSelect, int idxCandi)
 	float distC = abs(calcLuminance(elems.data[idxSelect].color.xyz) - calcLuminance(elems.data[idxCandi].color.xyz));
 
 	// NOTE: I'm not sure if these parameters are proper or not...
-	if (distV <= 0.05f && distN > 0.9f && distR < 1.4f && distC > 0.85f) 
+	if (distV <= 0.05f && distN > 0.9f && distR < 1.4f)// && distC > 0.85f) 
 	{
 		return true;
 	}
@@ -170,17 +171,9 @@ void main(void)
 		float rad = getRadius(inputVert.z, inputNorm.z, 1.0f / K[0][0], 1.0f / K[1][1]);
 
 		uint idx = atomicCounterIncrement(g_idx);
-
-        // elems[idx].vert = T * vec4(inputVert, 1.0f);
-		// elems[idx].norm = vec4(5, 6, 7, 8);
-		// elems[idx].color = vec4(9, 10, 11, 12);
-		// elems[idx].data.x = 13.0f;		// confidence
-		// elems[idx].data.y = 14.0f;		// radius
-		// elems[idx].data.z = 15.0f;	// timestamp
-        // elems[idx].data.w = 16.0f;	// timestamp
         
 		elems.data[idx].vert = T * vec4(inputVert, 1.0f);
-		elems.data[idx].norm = vec4(inputNorm.xyz, 0.0);//vec4(mat3(T) * inputNorm, 0.0f);
+		elems.data[idx].norm = vec4(mat3(T) * inputNorm, 0.0f);
 		elems.data[idx].color = vec4(inputColor, 1.0f);
 		elems.data[idx].data.x = alpha * 10.0f;		// confidence
 		elems.data[idx].data.y = rad;		// radius
@@ -198,8 +191,8 @@ void main(void)
 		// Point selection
 		int idxSelect = -1;
 		float tmpConf = -1.0f;
-		//float sigma_depth = 0.05f;//calcSigmaDepth(inputVert.z, calcTheta(uv, K[0][0], vec2(K[2][0], K[2][1])));
-		float sigma_depth = calcSigmaDepthRealsense(inputVert.z, uv, 0.05f);
+		float sigma_depth = 0.05f;//calcSigmaDepth(inputVert.z, calcTheta(uv, K[0][0], vec2(K[2][0], K[2][1])));
+		//float sigma_depth = calcSigmaDepthRealsense(inputVert.z, uv, 0.05f);
 		int idxCandi[16];
 		
 		vec3 _v[16];
@@ -351,8 +344,9 @@ void main(void)
 
 
 const removeUnnecessaryPointsSource = `#version 310 es
+layout(local_size_x = 400, local_size_y = 1) in;
 
-layout(binding = 0, offset = 0) uniform atomic_uint g_idxDst;
+layout(binding = 1, offset = 0) uniform atomic_uint g_idxDst;
 
 // Data structure
 struct gMapData
@@ -362,25 +356,26 @@ struct gMapData
 	vec4 norm;	// Normal
 	vec4 color;	// Color
 };
+
 // Global map (source)
 layout(std430, binding = 0) buffer gMapSrc
 {
 	gMapData data[];
 } elemSrc;
-// Global map (distination; removed)
+
+// Global map (destination; removed)
 layout(std430, binding = 1) buffer gMapDst
 {
 	gMapData data[];
 } elemDst;
 
-layout(local_size_x = 400, local_size_y = 1) in;
 
 uniform float c_stable;
 uniform int timestamp;
 
 bool validPoint(uint idx)
 {
-	if (elemSrc.data[idx].data.y > 0.0)
+	if (elemSrc.data[idx].data.y > 0.0f)
 	{
 		// 4.3 Removing points: Condition #1
 		if (elemSrc.data[idx].data.x < c_stable

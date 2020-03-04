@@ -319,7 +319,7 @@ function calcPoseP2P(gl, width, height) {
 
 
     gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "invT"), false, invT);
-    gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "P"), false, matP); // calibrated persepective
+    //gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "P"), false, matP); // calibrated persepective
     gl.uniform2fv(gl.getUniformLocation(indexMapGenProg, "imSize"), imageSize);
     gl.uniform4fv(gl.getUniformLocation(indexMapGenProg, "cam"), camPam);
     gl.uniform1f(gl.getUniformLocation(indexMapGenProg, "maxDepth"), 4.0); // SET ME PROPERLY
@@ -331,6 +331,8 @@ function calcPoseP2P(gl, width, height) {
     //gl.drawArrays(gl.POINTS, 0, 848*480);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    gl.disable(gl.DEPTH_TEST);
 
   }
 
@@ -374,7 +376,6 @@ function calcPoseP2P(gl, width, height) {
     gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    // console.log(gl.mapSize[0]);
 
     // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[0]);
     // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
@@ -390,7 +391,7 @@ function calcPoseP2P(gl, width, height) {
 
     gl.useProgram(removeUnnecessaryPointsProg);
 
-    buffs = [gl.buffSwitch, (gl.buffSwitch + 1) % 2];
+    let buffs = [gl.buffSwitch, 1 - gl.buffSwitch];
 
     gl.uniform1i(gl.getUniformLocation(removeUnnecessaryPointsProg, "timestamp"), gl.frameCounter);
     gl.uniform1f(gl.getUniformLocation(removeUnnecessaryPointsProg, "c_stable"), gl.cStable);
@@ -400,12 +401,15 @@ function calcPoseP2P(gl, width, height) {
     gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 0, gl.atomicGMCounter[buffs[1]]);
+    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 1, gl.atomicGMCounter[buffs[1]]);
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[buffs[0]]);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
 
-    gl.dispatchCompute(divup(gl.mapSize[0], 400), 1, 1);
+    console.log(gl.mapSize[0]);
+
+    let xVal = Math.ceil(divup(gl.mapSize[0], 400));
+    gl.dispatchCompute(xVal, 1, 1);
 
     gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 

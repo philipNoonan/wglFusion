@@ -14,10 +14,9 @@ layout(std430, binding = 0) buffer gMap
 } elems;
 
 uniform mat4 invT;
-uniform mat4 P;
 
 uniform vec2 imSize;
-uniform vec4 cam;
+uniform vec4 cam; // cx, cy, fx, fy
 uniform float maxDepth;
 
 flat out int idx;
@@ -56,8 +55,6 @@ void main()
 		gl_Position = tempPos;
 	}
 
-	gl_Position = vec4(elems.data[idx].vert.x, elems.data[idx].vert.y, 0, 1);
-	//gl_PointSize = 10.0f;
 
 	
 }

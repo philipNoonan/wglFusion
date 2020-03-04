@@ -191,8 +191,8 @@ void main(void)
 		// Point selection
 		int idxSelect = -1;
 		float tmpConf = -1.0f;
-		float sigma_depth = 0.05f;//calcSigmaDepth(inputVert.z, calcTheta(uv, K[0][0], vec2(K[2][0], K[2][1])));
-		//float sigma_depth = calcSigmaDepthRealsense(inputVert.z, uv, 0.05f);
+		//float sigma_depth = 0.05f;//calcSigmaDepth(inputVert.z, calcTheta(uv, K[0][0], vec2(K[2][0], K[2][1])));
+		float sigma_depth = calcSigmaDepthRealsense(inputVert.z, uv, 0.05f);
 		int idxCandi[16];
 		
 		vec3 _v[16];

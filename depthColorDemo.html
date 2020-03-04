@@ -403,6 +403,7 @@
   // UI stuff
 
   var volLength = 0.5;
+  var maxDepth = 1.0;
   var fusionType = 'P2P';
 
   var paramGUI = function () {
@@ -417,6 +418,7 @@
     this.integrateVol = true;
     this.length = 0.5;
     this.resolution = 128;
+    this.maxDepth = 1.0;
     this.renderDepth = true;
     this.renderColor = false;
     this.renderNormal = true;
@@ -430,6 +432,7 @@
   var resetClick = gui.add(param, 'resetVol').name('Reset Volume');
   var integrateClick = gui.add(param, 'integrateVol').name('Integrate');
   var lengthSlider = gui.add(param, 'length', 0.05, 2.0);
+  var maxDepthSlider = gui.add(param, 'maxDepth', 0.05, 10.0);
   var resolutionSlider = gui.add(param, 'resolution', [64, 128, 256, 512]);
   var renderDepthClick = gui.add(param, 'renderDepth').name('Depth')
   var renderNormalClick = gui.add(param, 'renderNormal').name('Normals')
@@ -444,6 +447,10 @@
 
   lengthSlider.onChange(function(value) {
     volLength = value;
+  });
+
+  maxDepthSlider.onChange(function(value) {
+    maxDepth = value;
   });
 
   resolutionSlider.onChange(function(value) {

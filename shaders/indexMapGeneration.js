@@ -53,10 +53,7 @@ void main()
 	else
 	{
 		gl_Position = tempPos;
-	}
-
-
-	
+	}	
 }
    `;
    

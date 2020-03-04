@@ -322,7 +322,7 @@ function calcPoseP2P(gl, width, height) {
     //gl.uniformMatrix4fv(gl.getUniformLocation(indexMapGenProg, "P"), false, matP); // calibrated persepective
     gl.uniform2fv(gl.getUniformLocation(indexMapGenProg, "imSize"), imageSize);
     gl.uniform4fv(gl.getUniformLocation(indexMapGenProg, "cam"), camPam);
-    gl.uniform1f(gl.getUniformLocation(indexMapGenProg, "maxDepth"), 4.0); // SET ME PROPERLY
+    gl.uniform1f(gl.getUniformLocation(indexMapGenProg, "maxDepth"), maxDepth); // SET ME PROPERLY
 
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
@@ -376,6 +376,9 @@ function calcPoseP2P(gl, width, height) {
     gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
+    console.log(gl.mapSize[0]);
+
+
 
     // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[0]);
     // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
@@ -406,7 +409,6 @@ function calcPoseP2P(gl, width, height) {
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[buffs[0]]);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
 
-    console.log(gl.mapSize[0]);
 
     let xVal = Math.ceil(divup(gl.mapSize[0], 400));
     gl.dispatchCompute(xVal, 1, 1);
@@ -443,7 +445,7 @@ function calcPoseP2P(gl, width, height) {
     gl.uniformMatrix4fv(gl.getUniformLocation(genVirtualFrameProg, "invT"), false, invT);
     gl.uniform4fv(gl.getUniformLocation(genVirtualFrameProg, "cam"), camPam);
     gl.uniform2fv(gl.getUniformLocation(genVirtualFrameProg, "imSize"), imageSize);
-    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "maxDepth"), 4.0);
+    gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "maxDepth"), maxDepth);
     gl.uniform1f(gl.getUniformLocation(genVirtualFrameProg, "c_stable"), gl.cStable);
 
     gl.drawArrays(gl.POINTS, 0, gl.mapSize[0]);
@@ -455,16 +457,13 @@ function calcPoseP2P(gl, width, height) {
 
     generateVertNorms(gl, imageSize[0], imageSize[1]);
 
-    let invPose = glMatrix.mat4.create();
-    glMatrix.mat4.invert(invPose, pose);
 
-    genIndexMap(gl, invPose);
+    var T = glMatrix.mat4.create();
 
     if (resetFlag == 0) {
 
 
       
-      var T = glMatrix.mat4.create();
 
       T = [...pose];
       var level = 0;
@@ -492,7 +491,12 @@ function calcPoseP2P(gl, width, height) {
       getClickedPoint(gl);
     }
 
+    //glMatrix.mat4.multiply(pose, pose, T);
 
+    let invPose = glMatrix.mat4.create();
+    glMatrix.mat4.invert(invPose, pose);
+
+    genIndexMap(gl, invPose);
 
 
     if (integrateFlag) {

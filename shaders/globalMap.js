@@ -23,7 +23,7 @@ uniform int firstFrame;
 
 const float radThresh = 0.2588190451f;	// cos(PI * 75.0 / 180.0)
 const float PI = 3.1415927f;
-const float PI_2 = PI / 2.0;
+const float PI_2 = PI / 2.0f;
 const float sqrt2 = 1.41421356237f;
 
 
@@ -157,7 +157,7 @@ void main(void)
 	// current vertex and normal
 	vec3 inputVert = vec3(imageLoad(mVertMap, uv).xyz);
 	vec3 inputNorm = vec3(imageLoad(mNormMap, uv).xyz);
-	vec3 inputColor = vec3(imageLoad(mColorMap, uv).rgb);	// Note: Assuming "BGR" input
+	vec3 inputColor = vec3(imageLoad(mColorMap, uv).xyz);	// Note: Assuming "BGR" input
 	//vec4 status = imageLoad(mTrackStatusmap, uv).xyzw;
 	ivec2 bestPix;
 
@@ -255,7 +255,10 @@ void main(void)
 				bAveraged = true;
 			}
 			elems.data[idxSelect].data.x += alpha;									// confidence
-			if (rad < elems.data[idxSelect].data.y) elems.data[idxSelect].data.y = rad;	// radius
+			if (rad < elems.data[idxSelect].data.y) 
+			{
+				elems.data[idxSelect].data.y = rad;	// radius
+			}
 			elems.data[idxSelect].data.z = float(timestamp);								// timestamp
 
 			// -----
@@ -346,7 +349,7 @@ void main(void)
 const removeUnnecessaryPointsSource = `#version 310 es
 layout(local_size_x = 400, local_size_y = 1) in;
 
-layout(binding = 1, offset = 0) uniform atomic_uint g_idxDst;
+layout(binding = 0, offset = 0) uniform atomic_uint g_idxDst;
 
 // Data structure
 struct gMapData

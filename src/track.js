@@ -332,7 +332,7 @@ function calcPoseP2P(gl, width, height) {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-    gl.disable(gl.DEPTH_TEST);
+    //gl.disable(gl.DEPTH_TEST);
 
   }
 
@@ -379,15 +379,6 @@ function calcPoseP2P(gl, width, height) {
     console.log(gl.mapSize[0]);
 
 
-
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[0]);
-    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr);
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
-
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[1]);
-    // gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, gl.globArr1);
-    // gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
-
   }
 
   function removeUnnecessaryPoints(gl) {
@@ -404,7 +395,7 @@ function calcPoseP2P(gl, width, height) {
     gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 1, gl.atomicGMCounter[buffs[1]]);
+    gl.bindBufferBase(gl.ATOMIC_COUNTER_BUFFER, 0, gl.atomicGMCounter[buffs[1]]);
 
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[buffs[0]]);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboGlobalMap[buffs[1]]);
@@ -431,15 +422,6 @@ function calcPoseP2P(gl, width, height) {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.viewport(0, 0, imageSize[0], imageSize[1]);
 
-    // gl.activeTexture(gl.TEXTURE0);
-    // gl.bindTexture(gl.TEXTURE_2D, gl.refVertex_texture);
-    // gl.activeTexture(gl.TEXTURE1);
-    // gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);
-    // gl.activeTexture(gl.TEXTURE2);
-    // gl.bindTexture(gl.TEXTURE_2D, gl.virtualDepthFrame_texture);
-    // gl.activeTexture(gl.TEXTURE3);
-    // gl.bindTexture(gl.TEXTURE_2D, gl.virtualColorFrame_texture);
-
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboGlobalMap[gl.buffSwitch]);
 
     gl.uniformMatrix4fv(gl.getUniformLocation(genVirtualFrameProg, "invT"), false, invT);
@@ -457,13 +439,9 @@ function calcPoseP2P(gl, width, height) {
 
     generateVertNorms(gl, imageSize[0], imageSize[1]);
 
-
     var T = glMatrix.mat4.create();
 
     if (resetFlag == 0) {
-
-
-      
 
       //T = [...pose];
       var level = 0;
@@ -488,6 +466,26 @@ function calcPoseP2P(gl, width, height) {
       //pose = [...T];
     }
     else {
+      // reseting 
+      let blankData = new Uint32Array(1);
+      let blankArr = new Float32Array(4 * 4 * 5e6); // 4 x vec4 x 5Million values
+
+
+      for (let i = 0; i < 2; i++) {
+        gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, gl.atomicGMCounter[i]);
+        gl.bufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, blankData);
+        gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
+      }
+
+      for (let i = 0; i < 2; i++) {
+        gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboGlobalMap[i]);
+        gl.bufferSubData(gl.SHADER_STORAGE_BUFFER, 0, blankArr);
+        gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, null);
+      }
+
+
+
+
       getClickedPoint(gl);
     }
 
@@ -497,6 +495,12 @@ function calcPoseP2P(gl, width, height) {
     glMatrix.mat4.invert(invPose, pose);
 
     genIndexMap(gl, invPose);
+
+    if (resetFlag == 1)
+    {
+      resetFlag = 0;
+      integrateFlag = 1;
+    }
 
 
     if (integrateFlag) {

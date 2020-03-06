@@ -903,8 +903,8 @@ return Object.assign(document.createElement("video"), {
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboClickedPoint);
       gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrClicked, gl.DYNAMIC_COPY);
 
-      var globArr = new Float32Array(4 * 4 * 5e6); // 4 x vec4 x 5Million values
-    var globArr1 = new Float32Array(4 * 4 * 5e6);
+      let globArr = new Float32Array(4 * 4 * 5e6); // 4 x vec4 x 5Million values
+
       var buffSwitch = 0;
       var mapSize = new Uint32Array(1);
       var cStable = 10;
@@ -956,8 +956,6 @@ return Object.assign(document.createElement("video"), {
       gl.ssboGraphY = ssboGraphY;
       gl.ssboGraphZ = ssboGraphZ;
 
-      gl.globArr = globArr;
-      gl.globArr1 = globArr1;
 
       gl.buffSwitch = buffSwitch;
       gl.mapSize = mapSize;

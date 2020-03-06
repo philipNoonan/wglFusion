@@ -465,7 +465,7 @@ function calcPoseP2P(gl, width, height) {
 
       
 
-      T = [...pose];
+      //T = [...pose];
       var level = 0;
 
       var A = new Float32Array(36); // 6 * 6
@@ -485,13 +485,13 @@ function calcPoseP2P(gl, width, height) {
 
         glMatrix.mat4.mul(T, delta, T);
       }
-      pose = [...T];
+      //pose = [...T];
     }
     else {
       getClickedPoint(gl);
     }
 
-    //glMatrix.mat4.multiply(pose, pose, T);
+    glMatrix.mat4.multiply(pose, pose, T);
 
     let invPose = glMatrix.mat4.create();
     glMatrix.mat4.invert(invPose, pose);

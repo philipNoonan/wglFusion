@@ -76,7 +76,7 @@ const fragmentShaderSource = `#version 310 es
 
         outColor = vec4(abs(refVertsData.xyz), 1.0f);
 
-        outColor = vec4(texture(indexMap, t));
+        //outColor = vec4(texture(indexMap, t));
 
     }
 

@@ -6,7 +6,7 @@
     const constraints = {
       audio: false,
       video: {
-        groupId: id,
+        deviceId: id,
         width: w,
         height: h,
         frameRate: {ideal: 30},
@@ -21,6 +21,7 @@
 
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     let track = stream.getVideoTracks()[0];
+
 
     if (track.label.includes('RGB') || track.label.includes('Webcam')) {
       return [stream, 'color'];

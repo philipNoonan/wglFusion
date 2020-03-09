@@ -160,6 +160,9 @@
     <p>Linux - USE CHROME DEV: </p>
     <pre>google-chrome-unstable --use-gl=angle --use-angle=gl --use-cmd-decoder=passthrough --enable-webgl2-compute-context</pre>
   </div>
+  <div class="select">
+    <label for="videoSource">Video source: </label><select id="videoSource"></select>
+  </div>
   <div id="console">
     <!-- Print error messages here. -->
   </div>
@@ -202,6 +205,7 @@
   <script src="shaders/indexMapGeneration.js"></script>
   <script src="shaders/globalMap.js"></script>
   <script src="shaders/genVirtualFrame.js"></script>
+  <script src="shaders/alignDepthColor.js"></script>
 
   <script src="shaders/tfTest.js"></script>
 
@@ -489,6 +493,8 @@
   var p2vTrackProg;
   var p2vReduceProg;
 
+  var alignDepthColorProg;
+
   //splatter
   var indexMapGenProg;
   var updateGlobalMapProg;
@@ -508,8 +514,8 @@
   var integrateFlag = 1;
 
 
-  var renderDepthFlag = 1;
-  var renderColorFlag = 0;
+  var renderDepthFlag = 0;
+  var renderColorFlag = 1;
   var renderRefNormFlag = 1;
   var renderRefVertFlag = 0;
   var renderNormFlag = 0;
@@ -520,10 +526,23 @@
   var bodyPoseFound = 0;
   var bodyPose;
 
+  var depthToColor = glMatrix.mat4.fromValues(
+    0.99999,0.00445759, 0.000388904, 0,
+  -0.00445483, 0.999967,-0.00681951,0,
+  -0.000419289, 0.00681771,  0.999977, 0,
+   0.0150835,-6.23177e-05,-0.000565773, 1);
+
+  // // original
+  // var depthToColor = glMatrix.mat4.fromValues(0.99999,-0.00445483,-0.000419289, 0.0150835,
+  //                                             0.00445759,0.999967,0.00681771, -6.23177e-05,
+  //                                             0.000388904,-0.00681951,0.999977, -0.000565773,
+  //                                             0, 0, 0, 1);
 
 
+                                              
 
   var camPam = [412, 237, 630, 630]; // cx cy fx fy
+  var colorCamPam = [418, 233, 619, 619];
 
   var K = glMatrix.mat4.create();
       K[0] = camPam[2];
@@ -628,7 +647,8 @@ return Object.assign(document.createElement("video"), {
       if (frameAvailableColor) {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, gl.color_texture);
-		    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RGBA, gl.UNSIGNED_BYTE, videos.color);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RGBA, gl.UNSIGNED_BYTE, videos.color);
+        
       }
 
       if (poseNetLoaded == 1) {
@@ -642,7 +662,8 @@ return Object.assign(document.createElement("video"), {
       }
 
  
-      
+      alignDepthColor(gl);
+
 
       if (fusionType == 'P2P') {
         calcPoseP2P(gl, imageSize[0], imageSize[1]);
@@ -751,6 +772,7 @@ return Object.assign(document.createElement("video"), {
 
     var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var colorAligned_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var volume_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
       var volumeWeight_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
@@ -771,6 +793,11 @@ return Object.assign(document.createElement("video"), {
       var virtualColorFrame_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var virtualFrame_depthTexture = generateTexture(gl, 'depth', gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+
+      var mappingC2D_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var mappingD2C_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+
+
 
       var framebuffer = gl.createFramebuffer();
       gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
@@ -813,6 +840,7 @@ return Object.assign(document.createElement("video"), {
 
       gl.depth_texture = depth_texture;
       gl.color_texture = color_texture;
+      gl.colorAligned_texture = colorAligned_texture;
       gl.vertex_texture = vertex_texture;
       gl.normal_texture = normal_texture;
       gl.volume_texture = volume_texture;      
@@ -824,7 +852,8 @@ return Object.assign(document.createElement("video"), {
       gl.render_texture = render_texture;
 
       gl.indexMap_texture = indexMap_texture;
-
+      gl.mappingD2C_texture = mappingD2C_texture;
+      gl.mappingC2D_texture = mappingC2D_texture;
 
       gl.indexMapFBO = indexMapFBO;
       gl.virtualFrameFBO = virtualFrameFBO;
@@ -986,6 +1015,8 @@ return Object.assign(document.createElement("video"), {
       removeUnnecessaryPointsProg = createComputeProgram(gl, removeUnnecessaryPointsSource);
       genVirtualFrameProg = createRenderProgram(gl, genVirtualFrameVertexShaderSource, genVirtualFrameFragmentShaderSource);
 
+      alignDepthColorProg = createComputeProgram(gl, alignDepthColorSource);
+
       // VERTEX FRAGMENT SHADERS
       plottingRenderProgram = createRenderProgram(gl, plottingVertexShaderSource, plottingFragmentShaderSource);
       renderProgram = createRenderProgram(gl, vertexShaderSource, fragmentShaderSource);
@@ -1083,22 +1114,77 @@ return Object.assign(document.createElement("video"), {
       loadStream(videoDevices[i])
     }
   }
+
+  function getDevices() {
+  // AFAICT in Safari this only gets default devices until gUM is called :/
+  return navigator.mediaDevices.enumerateDevices();
+}
+
+var videoSelect = document.querySelector('select#videoSource');
+
+videoSelect.onchange = getStream;
+
+function gotDevices(deviceInfos) {
+  window.deviceInfos = deviceInfos; // make available to console
+  console.log('Available input and output devices:', deviceInfos);
+  for (const deviceInfo of deviceInfos) {
+    const option = document.createElement('option');
+    option.value = deviceInfo.deviceId;
+    if (deviceInfo.kind === 'videoinput') {
+      videoDevices.push(deviceInfo.deviceId);
+      option.text = deviceInfo.label || `Camera ${videoSelect.length + 1}`;
+      videoSelect.appendChild(option);
+    }
+  }
+}
+
+function getStream() {
+  if (window.stream) {
+    window.stream.getTracks().forEach(track => {
+      track.stop();
+    });
+  }
+  const videoSource = videoSelect.value;
+
+  const constraints = {
+    video: {deviceId: videoSource ? {exact: videoSource} : undefined}
+  };
+  return navigator.mediaDevices.getUserMedia(constraints).
+    then(gotStream).catch(handleError);
+}
+
+function handleError(error) {
+  console.error('Error: ', error);
+}
+
+function gotStream(stream) {
+  window.stream = stream; // make stream available to console
+
+  videoSelect.selectedIndex = [...videoSelect.options].
+    findIndex(option => option.text === stream.getVideoTracks()[0].label);
+  //videoElement.srcObject = stream;
+}
+
   function onLoad() {
 
-    navigator.mediaDevices.enumerateDevices()
-      .then(function(devices) {
-        devices.forEach(function(device) {
-          console.log(device.kind + ": " + device.label +
-                      " id = " + device.groupId);
-          if (device.kind == "videoinput") {
-            videoDevices.push(device.groupId);
-            //loadStream(deviceId);
-          }
-        });
-      })
-      .catch(function(err) {
-        console.log(err.name + ": " + err.message);
-      });
+    // getStream().then(getDevices).then(gotDevices);
+
+    getDevices().then(gotDevices);
+    
+    // navigator.mediaDevices.enumerateDevices()
+    //   .then(function(devices) {
+    //     devices.forEach(function(device) {
+    //       console.log(device.kind + ": " + device.label +
+    //                   " id = " + device.deviceId);
+    //       if (device.kind == "videoinput") {
+    //         videoDevices.push(device.deviceId);
+    //         //loadStream(deviceId);
+    //       }
+    //     });
+    //   })
+    //   .catch(function(err) {
+    //     console.log(err.name + ": " + err.message);
+    //   });
 
     gl = this.configureGLContext();
 

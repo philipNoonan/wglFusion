@@ -55,7 +55,7 @@ const fragmentShaderSource = `#version 310 es
         //vec4 col = vec4(imageLoad(colorMap, ivec2(t_image + 0.5f)));
         vec4 col = vec4(texture(colorMap, t));
 
-        outColor = vec4(col.xyz * 0.00390625f, 1.0f);
+        outColor = vec4(col.xyz, 1.0f);
     }
 
     if (renderRefNorm == 1)

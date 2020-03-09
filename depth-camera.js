@@ -9,7 +9,7 @@
         deviceId: id,
         width: w,
         height: h,
-        frameRate: {ideal: 30},
+        frameRate: {ideal: 90},
       }
     }
 

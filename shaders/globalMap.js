@@ -115,7 +115,7 @@ bool closeEachOther(int idxSelect, int idxCandi)
 	float distC = abs(calcLuminance(elems.data[idxSelect].color.xyz) - calcLuminance(elems.data[idxCandi].color.xyz));
 
 	// NOTE: I'm not sure if these parameters are proper or not...
-	if (distV <= 0.05f && distN > 0.9f && distR < 1.4f)// && distC > 0.85f) 
+	if (distV <= 0.05f && distN > 0.5f && distR < 1.4f && distC > 0.85f) 
 	{
 		return true;
 	}

@@ -355,7 +355,7 @@ function calcPoseP2P(gl, width, height) {
     gl.bindImageTexture(0, gl.indexMap_texture, 0, false, 0, gl.READ_ONLY, gl.R32F);
     gl.bindImageTexture(1, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(2, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(3, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+    gl.bindImageTexture(3, gl.colorAligned_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
 
 
 

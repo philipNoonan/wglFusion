@@ -114,10 +114,10 @@ function render(gl, width, height) {
     gl.viewport(width / 2.0, 240, width / 2.0, height - 240);
 
     renderOpts = 0 << 0 | 
-                       0 << 1 |
+                       1 << 1 |
                        0 << 2 |
                        0 << 3 |
-                       1 << 4 |
+                       0 << 4 |
                        0 << 5;
 
     gl.uniform1i(gl.getUniformLocation(renderProgram, "renderOptions"), renderOpts);
@@ -128,7 +128,7 @@ function render(gl, width, height) {
     gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
     gl.uniform1i(gl.getUniformLocation(renderProgram, "colorMap"), 1);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, gl.colorAligned_texture);
+    gl.bindTexture(gl.TEXTURE_2D, gl.virtualColorFrame_texture);
     gl.uniform1i(gl.getUniformLocation(renderProgram, "refNormalMap"), 2);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, gl.refNormal_texture);

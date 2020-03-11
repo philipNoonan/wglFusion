@@ -85,7 +85,7 @@ const fragmentShaderSource = `#version 310 es
         //vec4 normsData = vec4(imageLoad(normalMap, ivec2(t_image + 0.5f)));
         vec4 normsData = vec4(texture(normalMap, t));
 
-        if (abs(normsData.x) > 0.0f)
+        if (abs(normsData.x) >= 0.0f)
         {
             outColor = vec4(abs(normsData.xyz), 1.0f);
         }

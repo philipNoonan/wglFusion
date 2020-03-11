@@ -26,6 +26,37 @@ function resultToMatrix(_result, _delta)
   _delta[15] = 1;
 }
 
+function resultToMatrixSO3(_result, _delta) {
+	let rx, ry, rz, theta;
+
+	rx = _result[0];
+	ry = _result[1];
+  rz = _result[2];
+    
+	theta = glMatrix.vec3.length(_result);
+
+	if (theta >= 2.2204460492503131e-016)
+	{
+		let I = glMatrix.mat3.create();
+
+		let c = Math.cos(theta);
+		let s = Math.sin(theta);
+		let c1 = 1.0 - c;
+		let itheta = theta ? 1.0 / theta : 0.0;
+
+		rx *= itheta; ry *= itheta; rz *= itheta;
+
+		let rrt = glMatrix.mat3.fromValues( rx*rx, rx*ry, rx*rz, rx*ry, ry*ry, ry*rz, rx*rz, ry*rz, rz*rz );
+		let _r_x_ = glMatrix.mat3.fromValues( 0, -rz, ry, rz, 0, -rx, -ry, rx, 0 );
+		let R = glMatrix.mat3.create();
+
+		for (let k = 0; k < 9; k++)
+		{
+			_delta[k] = c * I[k] + c1 * rrt[k] + s * _r_x_[k];
+		}
+	}
+}
+
 function twistMatrix(_result) {
   let sqrMat = [[0.0, _result[2], _result[1], _result[3]],
              [_result[2], 0.0, _result[0], _result[4]],
@@ -376,7 +407,7 @@ function calcPoseP2P(gl, width, height) {
     gl.getBufferSubData(gl.ATOMIC_COUNTER_BUFFER, 0, gl.mapSize);
     gl.bindBuffer(gl.ATOMIC_COUNTER_BUFFER, null);
 
-    console.log(gl.mapSize[0]);
+    //console.log(gl.mapSize[0]);
 
 
   }
@@ -513,4 +544,168 @@ function calcPoseP2P(gl, width, height) {
 
     
 
+  }
+
+  function solveSO3(_A, _b, _result) {
+    let A = Array.from(_A);
+    let b = Array.from(_b);
+    let folded_A = luqr.fold(A, 3);
+    let res = Array(3);
+    res = luqr.solve(folded_A,b);
+    if (res != null)
+    {
+      for (let i = 0; i < res.length; i++)
+      {
+        _result[i] = res[i];
+      }
+    }
+  }
+
+  function getReductionSO3(gl, _A, _b, _so3Data) {
+
+    const outputData = new Float32Array(8 * 11);
+    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboOutputSO3);
+    gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, outputData);
+    for (let row = 1; row < 8; row++) {
+        for (let col = 0; col < 11; col++) {
+          outputData[col + 0 * 11] += outputData[col + row * 11];
+        }
+    }
+
+
+  /*
+  vector b
+  | 3 |
+  | 6 |
+  | 8 |
+  and
+  matrix a
+  | 0  | 1 | 2 |
+  | 1  | 4 | 5 |
+  | 2  | 5 | 7 |
+  */
+
+    var shift = 0;
+    for (let i = 0; i < 3; ++i) {
+        for (let j = i; j < 4; ++j) {
+            let value = outputData[shift++];
+            if (j == 3) {
+              _b[i] = value;
+            }
+            else {
+              _A[j * 3 + i] = _A[i * 3 + j] = value;
+            }
+        }
+    }
+    _so3Data.SO3Error = Math.sqrt(outputData[9] / outputData[10]);
+    _so3Data.SO3Count = outputData[10];
+}
+
+  function reduceSO3(gl, level) {
+    gl.useProgram(so3ReduceProg);
+
+    gl.uniform2iv(gl.getUniformLocation(so3ReduceProg, "imSize"), imageSize);
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSO3);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboOutputSO3);
+
+    gl.dispatchCompute(divup(imageSize[0] >> level, 32), divup(imageSize[1] >> level, 32), 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+
+  }
+
+  function trackSO3(gl, level, homography, K_mat_inv, K_R_lr) {
+    gl.useProgram(so3TrackProg);
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSO3);
+
+    gl.bindImageTexture(0, gl.colorLast_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+    gl.bindImageTexture(1, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+
+    gl.uniformMatrix3fv(gl.getUniformLocation(so3TrackProg, "imageBasis"), false, homography);
+    gl.uniformMatrix3fv(gl.getUniformLocation(so3TrackProg, "kinv"), false, K_mat_inv);
+    gl.uniformMatrix3fv(gl.getUniformLocation(so3TrackProg, "krlr"), false, K_R_lr);
+
+    gl.dispatchCompute(divup(imageSize[0] >> level, 32), divup(imageSize[1] >> level, 32), 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+  }
+
+  function calcPoseSO3(gl) {
+
+    let pyramidLevel = 0;
+    let resultR = glMatrix.mat3.create();
+    let delta = glMatrix.mat3.create();
+    let K_mat = glMatrix.mat3.create();
+    let K_mat_inv = glMatrix.mat3.create();
+
+    K_mat[0] = colorCamPam[2] / (Math.pow(2, pyramidLevel));
+    K_mat[4] = colorCamPam[3] / (Math.pow(2, pyramidLevel));
+    K_mat[6] = colorCamPam[0] / (Math.pow(2, pyramidLevel));
+    K_mat[7] = colorCamPam[1] / (Math.pow(2, pyramidLevel));
+
+    glMatrix.mat3.invert(K_mat_inv, K_mat);
+
+    let lastError = 10000000000000;
+    let lastCount = 10000000000000;
+
+    let lastResultR = glMatrix.mat3.create();
+
+    for (let i = 0; i < 10; i++) {
+      let homography = glMatrix.mat3.create();
+      let temp0 = glMatrix.mat3.create();
+
+      glMatrix.mat3.multiply(temp0, resultR, K_mat_inv);
+      glMatrix.mat3.multiply(homography, K_mat, temp0);
+
+      // let imageBasis = glMatrix.mat3.create();
+      // glMatrix.mat3.transpose(imageBasis, homography); // do we need to do this, or is thi sjust to get eigen/glm formats correct?
+
+      let K_R_lr = glMatrix.mat3.create();
+      glMatrix.mat3.multiply(K_R_lr, K_mat, resultR);
+
+      var A = new Float32Array(9); // 3 * 3
+      var b = new Float32Array(3);
+      var result = new Float32Array(3);
+      var so3Data = {SO3Error:0.0, SO3Count:0};
+
+
+      trackSO3(gl, pyramidLevel, homography, K_mat_inv, K_R_lr);
+      reduceSO3(gl, pyramidLevel);
+      getReductionSO3(gl, A, b, so3Data);
+
+      if (so3Data.SO3Error < lastError && lastCount == so3Data.SO3Count) {
+        break;
+      }
+      else if (so3Data.SO3Error > lastError + 0.001) {
+        so3Data.SO3Error = lastError;
+        so3Data.SO3Count = lastCount;
+        resultR = lastResultR;
+        break;
+      }
+
+      lastError = so3Data.SO3Error;
+      lastCount = so3Data.SO3Count;
+      lastResultR = resultR;
+
+      solveSO3(A, b, result);
+
+      resultToMatrixSO3(result, delta);
+
+      glMatrix.mat3.mul(resultR, delta, resultR);
+    }
+
+    let tempMat4 = glMatrix.mat4.create();
+
+    glMatrix.mat4.set(tempMat4, resultR[0], resultR[1], resultR[2], 0, 
+                                resultR[3], resultR[4], resultR[5], 0,
+                                resultR[6], resultR[7], resultR[8], 0,
+                                0, 0, 0, 1)
+                                ;
+    glMatrix.mat4.mul(poseSO3, tempMat4, poseSO3);
+
+    // let invPoseSO3 = glMatrix.mat4.create();
+    // glMatrix.mat4.invert(invPoseSO3, poseSO3);
+    // genVirtualFrame(gl, invPoseSO3);
+
+    //console.log(poseSO3);
   }

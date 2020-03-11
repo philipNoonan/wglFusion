@@ -206,6 +206,8 @@
   <script src="shaders/globalMap.js"></script>
   <script src="shaders/genVirtualFrame.js"></script>
   <script src="shaders/alignDepthColor.js"></script>
+  <script src="shaders/trackSO3.js"></script>
+  <script src="shaders/reduceSO3.js"></script>
 
   <script src="shaders/tfTest.js"></script>
 
@@ -355,6 +357,7 @@
     integrateFlag = 0;
     resetFlag = 1;
     pose = [...initPose];
+    poseSO3 = glMatrix.mat4.create();
     gl.firstFrame = 1;
 
   
@@ -492,6 +495,9 @@
   var p2pReduceProg;
   var p2vTrackProg;
   var p2vReduceProg;
+  var so3TrackProg;
+  var so3ReduceProg;  
+
 
   var alignDepthColorProg;
 
@@ -572,6 +578,8 @@
   var pose = glMatrix.mat4.create();
   var initPose = glMatrix.mat4.create();
   var invIP = glMatrix.mat4.create();
+
+  var poseSO3 = glMatrix.mat4.create();
 
   var graphXPoints = [];
   var graphYPoints = [];
@@ -675,6 +683,8 @@ return Object.assign(document.createElement("video"), {
         calcPoseSplat(gl);
       }
 
+      calcPoseSO3(gl);
+
       if (gl.firstFrame == 1 && gl.frameCounter > 10) {
         gl.firstFrame = 0;
       }
@@ -721,6 +731,10 @@ return Object.assign(document.createElement("video"), {
         gl.bindVertexArray(null);
 
       }
+
+      let tempVal = gl.colorLast_texture;
+          gl.colorLast_texture = gl.color_texture;
+          gl.color_texture = tempVal;
 
       gl.frameCounter++;
       stats.end();
@@ -772,6 +786,8 @@ return Object.assign(document.createElement("video"), {
 
     var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var colorLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+
       var colorAligned_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var volume_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
@@ -840,6 +856,7 @@ return Object.assign(document.createElement("video"), {
 
       gl.depth_texture = depth_texture;
       gl.color_texture = color_texture;
+      gl.colorLast_texture = colorLast_texture;
       gl.colorAligned_texture = colorAligned_texture;
       gl.vertex_texture = vertex_texture;
       gl.normal_texture = normal_texture;
@@ -955,7 +972,16 @@ return Object.assign(document.createElement("video"), {
         gl.bufferData(gl.ATOMIC_COUNTER_BUFFER, new Uint32Array(1), gl.DYNAMIC_COPY);
       }
 
+      let arrSO3 = new Float32Array(imageSize[0] * imageSize[1] * 4);// width * height * sizeof vec4
+      let arrOutSO3 = new Float32Array(8 * 11);
 
+      var ssboReductionSO3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionSO3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrSO3, gl.DYNAMIC_COPY);
+
+      var ssboOutputSO3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboOutputSO3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrOutSO3, gl.DYNAMIC_COPY);
 
       gl.useProgram(renderSkeletonProgram);
       vaoSkeleton = gl.createVertexArray();
@@ -980,6 +1006,8 @@ return Object.assign(document.createElement("video"), {
       gl.ssboReduction = ssboReduction;
       gl.ssboReductionOutput = ssboReductionOutput;
       gl.ssboClickedPoint = ssboClickedPoint;
+      gl.ssboReductionSO3 = ssboReductionSO3;
+      gl.ssboOutputSO3 = ssboOutputSO3;
 
       gl.ssboGraphX = ssboGraphX;
       gl.ssboGraphY = ssboGraphY;
@@ -1007,6 +1035,8 @@ return Object.assign(document.createElement("video"), {
       p2pReduceProg = createComputeProgram(gl, p2pReduceSource);  
       p2vTrackProg = createComputeProgram(gl, p2vTrackSource);  
       p2vReduceProg = createComputeProgram(gl, p2vReduceSource);  
+      so3TrackProg = createComputeProgram(gl, so3TrackSource);
+      so3ReduceProg = createComputeProgram(gl, so3ReduceSource);      
       clickedPointProg = createComputeProgram(gl, clickedPointSource);  
       plottingBufferProg = createComputeProgram(gl, plottingBufferSource);  
 

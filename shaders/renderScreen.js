@@ -20,7 +20,8 @@ const fragmentShaderSource = `#version 310 es
     layout (binding = 3) uniform highp sampler2D refVertexMap;
     layout (binding = 4) uniform highp sampler2D normalMap;
     layout (binding = 5) uniform highp sampler2D vertexMap;
-    layout (binding = 5) uniform highp sampler2D indexMap;
+    layout (binding = 6) uniform highp sampler2D indexMap;
+    layout (binding = 7) uniform highp sampler2D gradientMap;
 
     // layout(binding = 0, rgba8ui) readonly uniform mediump uimage2D colorMap;
     // layout(binding = 1, rgba32f) readonly uniform mediump image2D refNormalMap;
@@ -42,6 +43,7 @@ const fragmentShaderSource = `#version 310 es
     int renderRefVert = (renderOptions & 8) >> 3;
     int renderNorm = (renderOptions & 16) >> 4;
     int renderVert = (renderOptions & 32) >> 5;
+    int renderGrad = (renderOptions & 64) >> 6;
 
 
     if (renderDepth == 1)
@@ -99,6 +101,12 @@ const fragmentShaderSource = `#version 310 es
         outColor = vec4(abs(vertsData.xyz), 1.0f);
     }
 
+    if (renderGrad == 1)
+    {
+        vec4 gradData = vec4(texture(gradientMap, t));
+
+        outColor = vec4(abs(gradData.xy), 0, 1.0f);
+    }
     
    //outColor = vec4(smoothStep(imageLoad(indexMap, ivec2(t_image * 4.0f)).x, 0, 5e6), 0, 0, 1);
 

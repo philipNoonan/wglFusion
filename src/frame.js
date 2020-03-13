@@ -75,3 +75,29 @@ function generateVertNorms(gl, width, height) {
     gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 
   }
+
+  function calcGradient(gl, level, width, height) {
+
+
+    gl.useProgram(gradientProg);
+
+    gl.uniform1i(gl.getUniformLocation(gradientProg, "colorMap"), 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.color_texture);
+
+    //gl.bindImageTexture(0, gl.color_texture, level, false, 0, gl.READ_ONLY, gl.RGBA8UI)
+    gl.bindImageTexture(1, gl.gradient_texture, level, false, 0, gl.WRITE_ONLY, gl.RGBA32F)
+    //gl.bindImageTexture(2, gl.srcTex, level, false, 0, gl.WRITE_ONLY, gl.RGBA32F)
+
+    // bind uniforms
+    let lesser = 3.0;
+    let upper = 10.0;
+    gl.uniform1f(gl.getUniformLocation(gradientProg, "lesser"), lesser);
+    gl.uniform1f(gl.getUniformLocation(gradientProg, "upper"), upper);
+    gl.uniform1i(gl.getUniformLocation(gradientProg, "level"), level);
+    gl.uniform1f(gl.getUniformLocation(gradientProg, "normVal"), (1.0 / (2.0 * upper + 4.0 * lesser)));
+
+    gl.dispatchCompute(divup(width, 32), divup(height, 32), 1);
+    gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+}

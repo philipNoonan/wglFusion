@@ -196,6 +196,8 @@
 
   <script src="shaders/depthToVert.js"></script>
   <script src="shaders/vertToNorm.js"></script>
+  <script src="shaders/edgeDetect.js"></script>
+
   <script src="shaders/raycastVolume.js"></script>
   <script src="shaders/integrateVolume.js"></script>
   <script src="shaders/trackP2P.js"></script>
@@ -208,6 +210,10 @@
   <script src="shaders/alignDepthColor.js"></script>
   <script src="shaders/trackSO3.js"></script>
   <script src="shaders/reduceSO3.js"></script>
+  <script src="shaders/trackSE3.js"></script>
+  <script src="shaders/reduceSE3.js"></script>
+  <script src="shaders/trackStepSE3.js"></script>
+  <script src="shaders/reduceStepSE3.js"></script>
 
   <script src="shaders/tfTest.js"></script>
 
@@ -358,6 +364,7 @@
     resetFlag = 1;
     pose = [...initPose];
     poseSO3 = glMatrix.mat4.create();
+    poseSE3 = glMatrix.mat4.create();
     gl.firstFrame = 1;
 
   
@@ -489,6 +496,7 @@
   // programs
   var depthToVertProg;
   var vertToNormProg;
+  var gradientProg;
   var integrateProg;
   var raycastProg;
   var p2pTrackProg;
@@ -497,7 +505,10 @@
   var p2vReduceProg;
   var so3TrackProg;
   var so3ReduceProg;  
-
+  var se3TrackProg;
+  var se3ReduceProg;  
+  var se3TrackStepProg;
+  var se3ReduceStepProg;  
 
   var alignDepthColorProg;
 
@@ -551,10 +562,10 @@
   var colorCamPam = [418, 233, 619, 619];
 
   var K = glMatrix.mat4.create();
-      K[0] = camPam[2];
-      K[5] = camPam[3];
-      K[8] = camPam[0];
-      K[9] = camPam[1];
+      K[0] = camPam[2]; // fx
+      K[5] = camPam[3]; // fy 
+      K[8] = camPam[0]; // cx
+      K[9] = camPam[1]; // cy
 
   var invK = glMatrix.mat4.create();
   glMatrix.mat4.invert(invK, K);
@@ -580,6 +591,7 @@
   var invIP = glMatrix.mat4.create();
 
   var poseSO3 = glMatrix.mat4.create();
+  var poseSE3 = glMatrix.mat4.create();
 
   var graphXPoints = [];
   var graphYPoints = [];
@@ -672,6 +684,8 @@ return Object.assign(document.createElement("video"), {
  
       alignDepthColor(gl);
 
+            calcPoseSO3(gl);
+            //calcPoseSE3(gl);
 
       if (fusionType == 'P2P') {
         calcPoseP2P(gl, imageSize[0], imageSize[1]);
@@ -683,7 +697,7 @@ return Object.assign(document.createElement("video"), {
         calcPoseSplat(gl);
       }
 
-      calcPoseSO3(gl);
+
 
       if (gl.firstFrame == 1 && gl.frameCounter > 10) {
         gl.firstFrame = 0;
@@ -733,8 +747,16 @@ return Object.assign(document.createElement("video"), {
       }
 
       let tempVal = gl.colorLast_texture;
-          gl.colorLast_texture = gl.color_texture;
-          gl.color_texture = tempVal;
+      gl.colorLast_texture = gl.color_texture;
+      gl.color_texture = tempVal;
+
+      let tempDepthVal = gl.depthLast_texture;
+      gl.depthLast_texture = gl.depth_texture;
+      gl.depth_texture = tempDepthVal;
+
+      let tempVertVal = gl.vertexLast_texture;
+      gl.vertexLast_texture = gl.vertex_texture;
+      gl.vertex_texture = tempVertVal;
 
       gl.frameCounter++;
       stats.end();
@@ -783,20 +805,23 @@ return Object.assign(document.createElement("video"), {
 
   function setTextures(gl) {
 
-
     var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+    var depthLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var colorLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var colorAligned_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+
+      var gradient_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.LINEAR, gl.LINEAR_MIPMAP_NEAREST);
 
       var volume_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
       var volumeWeight_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
 
       var render_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var renderGraph_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, 1024, 240, 1, gl.NEAREST, gl.NEAREST);
-
+      
       var vertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var vertexLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var normal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var refVertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
@@ -855,10 +880,13 @@ return Object.assign(document.createElement("video"), {
      
 
       gl.depth_texture = depth_texture;
+      gl.depthLast_texture = depthLast_texture;
       gl.color_texture = color_texture;
       gl.colorLast_texture = colorLast_texture;
       gl.colorAligned_texture = colorAligned_texture;
+      gl.gradient_texture = gradient_texture;
       gl.vertex_texture = vertex_texture;
+      gl.vertexLast_texture = vertexLast_texture;
       gl.normal_texture = normal_texture;
       gl.volume_texture = volume_texture;      
       gl.volumeWeight_texture = volumeWeight_texture;
@@ -983,6 +1011,27 @@ return Object.assign(document.createElement("video"), {
       gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboOutputSO3);
       gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrOutSO3, gl.DYNAMIC_COPY);
 
+      let arrSE3 = new Float32Array(imageSize[0] * imageSize[1] * 6);// width * height * sizeof vec4
+      let arrOutSE3 = new Float32Array(8 * 2);
+      let arrJTJJTrSE3 = new Float32Array(imageSize[0] * imageSize[1] * 8);
+      let arrJTJJTrOutputSE3 = new Float32Array(8 * 32);
+
+      var ssboReductionSE3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionSE3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrSO3, gl.DYNAMIC_COPY);
+
+      var ssboReductionOutputSE3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboReductionOutputSE3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrOutSE3, gl.DYNAMIC_COPY);
+
+      var ssboJtJJtrSE3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboJtJJtrSE3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrJTJJTrSE3, gl.DYNAMIC_COPY);
+
+      var ssboJtJJtrOutputSE3 = gl.createBuffer();
+      gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboJtJJtrOutputSE3);
+      gl.bufferData(gl.SHADER_STORAGE_BUFFER, arrJTJJTrOutputSE3, gl.DYNAMIC_COPY);
+
       gl.useProgram(renderSkeletonProgram);
       vaoSkeleton = gl.createVertexArray();
       gl.bindVertexArray(vaoSkeleton);
@@ -1009,6 +1058,11 @@ return Object.assign(document.createElement("video"), {
       gl.ssboReductionSO3 = ssboReductionSO3;
       gl.ssboOutputSO3 = ssboOutputSO3;
 
+      gl.ssboReductionSE3 = ssboReductionSE3;
+      gl.ssboReductionOutputSE3 = ssboReductionOutputSE3;
+      gl.ssboJtJJtrSE3 = ssboJtJJtrSE3;
+      gl.ssboJtJJtrOutputSE3 = ssboJtJJtrOutputSE3;
+
       gl.ssboGraphX = ssboGraphX;
       gl.ssboGraphY = ssboGraphY;
       gl.ssboGraphZ = ssboGraphZ;
@@ -1029,6 +1083,7 @@ return Object.assign(document.createElement("video"), {
       // COMPUTE SHADERS
       depthToVertProg = createComputeProgram(gl, depthToVertSource);  
       vertToNormProg = createComputeProgram(gl, vertToNormSource);  
+      gradientProg = createComputeProgram(gl, gradientSource);
       integrateProg = createComputeProgram(gl, integrateSource);  
       raycastProg = createComputeProgram(gl, raycastSource);  
       p2pTrackProg = createComputeProgram(gl, p2pTrackSource);  
@@ -1036,7 +1091,11 @@ return Object.assign(document.createElement("video"), {
       p2vTrackProg = createComputeProgram(gl, p2vTrackSource);  
       p2vReduceProg = createComputeProgram(gl, p2vReduceSource);  
       so3TrackProg = createComputeProgram(gl, so3TrackSource);
-      so3ReduceProg = createComputeProgram(gl, so3ReduceSource);      
+      so3ReduceProg = createComputeProgram(gl, so3ReduceSource);   
+      se3TrackProg = createComputeProgram(gl, se3TrackSource);
+      se3ReduceProg = createComputeProgram(gl, se3ReduceSource);   
+      se3TrackStepProg = createComputeProgram(gl, se3TrackStepSource);
+      se3ReduceStepProg = createComputeProgram(gl, se3ReduceStepSource);     
       clickedPointProg = createComputeProgram(gl, clickedPointSource);  
       plottingBufferProg = createComputeProgram(gl, plottingBufferSource);  
 

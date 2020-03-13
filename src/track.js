@@ -57,6 +57,19 @@ function resultToMatrixSO3(_result, _delta) {
 	}
 }
 
+function computeUpdateSE3(result, delta) {
+
+  let rvec = glMatrix.vec3.fromValues(result[3], result[4], result[5]);
+  let R = glMatrix.mat3.create();
+
+  resultToMatrixSO3(rvec, R);
+
+  glMatrix.mat4.set(delta, R[0], R[1], R[2], 0, 
+                              R[3], R[4], R[5], 0,
+                              R[6], R[7], R[8], 0,
+                              result[0], result[1], result[2], 1);
+}
+
 function twistMatrix(_result) {
   let sqrMat = [[0.0, _result[2], _result[1], _result[3]],
              [_result[2], 0.0, _result[0], _result[4]],
@@ -207,29 +220,29 @@ function calcPoseP2P(gl, width, height) {
       generateVertNorms(gl, width, height);
       raycastVolume(gl, width, height);
       
-      var T = glMatrix.mat4.create();
+      // var T = glMatrix.mat4.create();
 
-      T = [...pose];
-      var level = 0;
+      // T = [...pose];
+      // var level = 0;
 
-      var A = new Float32Array(36); // 6 * 6
-      var b = new Float32Array(6);
-      var result = new Float32Array(6);
-      var icpData = {AE:0.0, icpCount:0};
+      // var A = new Float32Array(36); // 6 * 6
+      // var b = new Float32Array(6);
+      // var result = new Float32Array(6);
+      // var icpData = {AE:0.0, icpCount:0};
 
-      // use proper lvls ....
-      for (let i = 0; i < 2; i++)
-      {
-        var delta = glMatrix.mat4.create();
-        trackP2P(gl, width, height, T, level);
-        reduceP2P(gl);
-        getReduction(gl, A, b, icpData);
-        solve(A, b, result);
-        resultToMatrix(result, delta);
+      // // use proper lvls ....
+      // for (let i = 0; i < 2; i++)
+      // {
+      //   var delta = glMatrix.mat4.create();
+      //   trackP2P(gl, width, height, T, level);
+      //   reduceP2P(gl);
+      //   getReduction(gl, A, b, icpData);
+      //   solve(A, b, result);
+      //   resultToMatrix(result, delta);
 
-        glMatrix.mat4.mul(T, delta, T);
-      }
-      pose = [...T];
+      //   glMatrix.mat4.mul(T, delta, T);
+      // }
+      // pose = [...T];
     }
     else {
       getClickedPoint(gl);
@@ -474,27 +487,27 @@ function calcPoseP2P(gl, width, height) {
 
     if (resetFlag == 0) {
 
-      //T = [...pose];
-      var level = 0;
+      // //T = [...pose];
+      // var level = 0;
 
-      var A = new Float32Array(36); // 6 * 6
-      var b = new Float32Array(6);
-      var result = new Float32Array(6);
-      var icpData = {AE:0.0, icpCount:0};
+      // var A = new Float32Array(36); // 6 * 6
+      // var b = new Float32Array(6);
+      // var result = new Float32Array(6);
+      // var icpData = {AE:0.0, icpCount:0};
 
-      // use proper lvls ....
-      for (let i = 0; i < 2; i++)
-      {
-        var delta = glMatrix.mat4.create();
-        trackP2P(gl, imageSize[0], imageSize[1], T, level);
-        reduceP2P(gl);
-        getReduction(gl, A, b, icpData);
-        solve(A, b, result);
-        resultToMatrix(result, delta);
+      // // use proper lvls ....
+      // for (let i = 0; i < 2; i++)
+      // {
+      //   var delta = glMatrix.mat4.create();
+      //   trackP2P(gl, imageSize[0], imageSize[1], T, level);
+      //   reduceP2P(gl);
+      //   getReduction(gl, A, b, icpData);
+      //   solve(A, b, result);
+      //   resultToMatrix(result, delta);
 
-        glMatrix.mat4.mul(T, delta, T);
-      }
-      //pose = [...T];
+      //   glMatrix.mat4.mul(T, delta, T);
+      // }
+      // //pose = [...T];
     }
     else {
       // reseting 
@@ -520,7 +533,7 @@ function calcPoseP2P(gl, width, height) {
       getClickedPoint(gl);
     }
 
-    glMatrix.mat4.multiply(pose, pose, T);
+    // glMatrix.mat4.multiply(pose, pose, T);
 
     let invPose = glMatrix.mat4.create();
     glMatrix.mat4.invert(invPose, pose);
@@ -609,7 +622,7 @@ function calcPoseP2P(gl, width, height) {
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSO3);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboOutputSO3);
 
-    gl.dispatchCompute(divup(imageSize[0] >> level, 32), divup(imageSize[1] >> level, 32), 1);
+    gl.dispatchCompute(8, 1, 1);
     gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 
   }
@@ -701,11 +714,227 @@ function calcPoseP2P(gl, width, height) {
                                 resultR[6], resultR[7], resultR[8], 0,
                                 0, 0, 0, 1)
                                 ;
-    glMatrix.mat4.mul(poseSO3, tempMat4, poseSO3);
+    glMatrix.mat4.mul(pose, pose, tempMat4);
 
     // let invPoseSO3 = glMatrix.mat4.create();
     // glMatrix.mat4.invert(invPoseSO3, poseSO3);
     // genVirtualFrame(gl, invPoseSO3);
 
     //console.log(poseSO3);
+  }
+
+
+
+  function residualSE3(gl, level, Kt, KRK_inv, se3Data) {
+    gl.useProgram(se3TrackProg);
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSE3);
+
+    gl.bindImageTexture(0, gl.colorLast_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+    gl.bindImageTexture(1, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
+    gl.bindImageTexture(2, gl.gradient_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(3, gl.mappingC2D_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI)
+    gl.bindImageTexture(4, gl.mappingD2C_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI)
+    gl.bindImageTexture(5, gl.depthLast_texture, 0, false, 0, gl.READ_ONLY, gl.R32F)
+    gl.bindImageTexture(6, gl.depth_texture, 0, false, 0, gl.READ_ONLY, gl.R32F)
+
+    gl.uniform1f(gl.getUniformLocation(se3TrackProg, "minScale"), 0.005);
+    gl.uniform1f(gl.getUniformLocation(se3TrackProg, "maxDepthDelta"), 0.05);
+    gl.uniform1f(gl.getUniformLocation(se3TrackProg, "level"), level);
+
+    gl.uniform3fv(gl.getUniformLocation(se3TrackProg, "kt"), Kt);
+    gl.uniformMatrix3fv(gl.getUniformLocation(se3TrackProg, "krkinv"), false, KRK_inv);
+
+    gl.dispatchCompute(divup(imageSize[0] >> level, 32), divup(imageSize[1] >> level, 32), 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+  }
+
+  function residualReduceSE3(gl) {
+    gl.useProgram(se3ReduceProg);
+
+    gl.uniform2iv(gl.getUniformLocation(se3ReduceProg, "imSize"), imageSize);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSE3);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboReductionOutputSE3);
+
+    gl.dispatchCompute(8, 1, 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+  }
+
+  function getResidualReductionSE3(gl, se3Data) {
+    const outputData = new Float32Array(8 * 2);
+    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboReductionOutputSE3);
+    gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, outputData);
+
+    let count = 0;
+    let sigma = 0;
+    for (let i = 0; i < 16; i += 2) {
+      count += outputData[i];
+      sigma += outputData[i + 1];
+    }
+
+    se3Data.SE3sigma = Math.sqrt(sigma / count == 0 ? 1 : count);
+    se3Data.SE3Error = Math.sqrt(sigma) / (count == 0 ? 1 : count);
+  }
+
+
+
+  function stepSE3(gl, level, Kcampam, se3Data) {
+    gl.useProgram(se3TrackStepProg)
+
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReductionSE3);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboJtJJtrSE3);
+
+    gl.bindImageTexture(0, gl.vertexLast_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(1, gl.gradient_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(2, gl.mappingC2D_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI)
+    gl.bindImageTexture(3, gl.mappingD2C_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI)
+
+    gl.uniform1f(gl.getUniformLocation(se3TrackStepProg, "sigma"), se3Data.SE3sigma);
+    gl.uniform1f(gl.getUniformLocation(se3TrackStepProg, "sobelScale"), 0.005);
+    gl.uniform4fv(gl.getUniformLocation(se3TrackStepProg, "cam"), Kcampam);
+    gl.uniform1i(gl.getUniformLocation(se3TrackStepProg, "level"), level);
+
+
+    gl.dispatchCompute(divup(imageSize[0] >> level, 32), divup(imageSize[1] >> level, 32), 1);
+    gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+
+  }
+
+  function stepReduceSE3(gl) {
+    gl.useProgram(se3ReduceStepProg);
+
+    gl.uniform2iv(gl.getUniformLocation(se3ReduceStepProg, "imSize"), imageSize);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboJtJJtrSE3);
+    gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboJtJJtrOutputSE3);
+
+    gl.dispatchCompute(8, 1, 1);
+
+  }
+
+  function getStepReductionSE3(gl, _A, _b) {
+    const outputData = new Float32Array(8 * 32);
+    gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, gl.ssboJtJJtrOutputSE3);
+    gl.getBufferSubData(gl.SHADER_STORAGE_BUFFER, 0, outputData);
+    for (let row = 1; row < 8; row++) {
+        for (let col = 0; col < 32; col++) {
+          outputData[col + 0 * 32] += outputData[col + row * 32];
+        }
+    }
+
+    /*
+		vector b
+		| 6  |
+		| 12 |
+		| 17 |
+		| 21 |
+		| 24 |
+		| 26 |
+		
+		and
+		matrix a
+		| 0  | 1  | 2  | 3  | 4  | 5  |
+		| 1  | 7  | 8  | 9  | 10 | 11 |
+		| 2  | 8  | 13 | 14 | 15 | 16 |
+		| 3  | 9  | 14 | 18 | 19 | 20 |
+		| 4  | 10 | 15 | 19 | 22 | 23 |
+		| 5  | 11 | 16 | 20 | 23 | 25 |
+    */
+
+   var shift = 0;
+   for (let i = 0; i < 6; ++i) {
+       for (let j = i; j < 7; ++j) {
+           let value = outputData[shift++];
+           if (j == 6) {
+             _b[i] = value;
+           }
+           else {
+             _A[j * 6 + i] = _A[i * 6 + j] = value;
+           }
+       }
+   }
+  }
+
+
+
+
+  function calcPoseSE3(gl) {
+
+    calcGradient(gl, 0, imageSize[0], imageSize[1]);
+
+    let lastRGBError = 3.402823e+38;
+
+    let tprev = glMatrix.vec3.fromValues(pose[12], pose[13], pose[14]);
+    
+    let tcurr = glMatrix.vec3.clone(tprev);
+
+    let resultRt_prev = glMatrix.mat4.create();
+    let resultRt = glMatrix.mat4.create();
+
+
+    for (let lvl = 0; lvl >= 0; lvl--) {
+
+      let K_mat = glMatrix.mat3.create();
+      let K_mat_inv = glMatrix.mat3.create();
+  
+      K_mat[0] = colorCamPam[2] / (Math.pow(2, lvl));
+      K_mat[4] = colorCamPam[3] / (Math.pow(2, lvl));
+      K_mat[6] = colorCamPam[0] / (Math.pow(2, lvl));
+      K_mat[7] = colorCamPam[1] / (Math.pow(2, lvl));
+
+      let Kcampam = [K_mat[0], K_mat[4], K_mat[6], K_mat[7]];
+  
+      glMatrix.mat3.invert(K_mat_inv, K_mat);
+
+
+      for (let iter = 0; iter < 5; iter++) {
+        let resultRt_inv = glMatrix.mat4.create();
+        glMatrix.mat4.invert(resultRt_inv, resultRt);
+
+        let R = glMatrix.mat3.create();
+        glMatrix.mat3.fromMat4(R, resultRt_inv);
+
+        let KRK_inv = glMatrix.mat3.create();
+        let temp0 = glMatrix.mat3.create();
+
+        glMatrix.mat3.mul(temp0, R, K_mat_inv);
+        glMatrix.mat3.mul(KRK_inv, K_mat, temp0);
+
+        let Kt = glMatrix.vec3.fromValues(resultRt_inv[12], resultRt_inv[13], resultRt_inv[14]);
+
+        glMatrix.vec3.transformMat3(Kt, Kt, K_mat)
+
+        var A = new Float32Array(36); // 3 * 3
+        var b = new Float32Array(6);
+        var result = new Float32Array(6);
+        var se3Data = {SE3Error:0.0, SE3sigma:0};
+        let delta = glMatrix.mat4.create();
+
+        residualSE3(gl, lvl, Kt, KRK_inv, se3Data);
+        residualReduceSE3(gl, lvl, Kt, KRK_inv, se3Data);
+        getResidualReductionSE3(gl, se3Data);
+
+        stepSE3(gl, lvl, Kcampam, se3Data);
+        stepReduceSE3(gl);
+        getStepReductionSE3(gl, A, b);
+        solve(A, b, result);
+        computeUpdateSE3(result, delta);
+
+        glMatrix.mat4.mul(resultRt, delta, resultRt);
+
+        tprev = glMatrix.vec3.fromValues(resultRt[12], resultRt[13], resultRt[14]);
+
+      }
+
+
+    }
+
+    let diff = glMatrix.vec3.create();
+    glMatrix.vec3.sub(diff, tprev, tcurr);
+    //if (glMatrix.vec3.length(diff) < 0.3) {
+      glMatrix.mat4.mul(pose, pose, resultRt);
+    //}
+
+    // let invPoseSE3 = glMatrix.mat4.create();
+    // glMatrix.mat4.invert(invPoseSE3, poseSE3);
+    // genVirtualFrame(gl, invPoseSE3);
   }

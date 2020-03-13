@@ -97,7 +97,9 @@ function render(gl, width, height) {
     gl.uniform1i(gl.getUniformLocation(renderProgram, "indexMap"), 6);
     gl.activeTexture(gl.TEXTURE6);
     gl.bindTexture(gl.TEXTURE_2D, gl.indexMap_texture);
-
+    gl.uniform1i(gl.getUniformLocation(renderProgram, "gradientMap"), 7);
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D, gl.gradient_texture);
     // gl.bindImageTexture(0, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
     // gl.bindImageTexture(1, gl.refNormal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     // gl.bindImageTexture(2, gl.refVertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
@@ -118,7 +120,8 @@ function render(gl, width, height) {
                        0 << 2 |
                        0 << 3 |
                        0 << 4 |
-                       0 << 5;
+                       0 << 5 |
+                       1 << 6;
 
     gl.uniform1i(gl.getUniformLocation(renderProgram, "renderOptions"), renderOpts);
     gl.uniform2fv(gl.getUniformLocation(renderProgram, "imageSize"), imageSize);
@@ -144,7 +147,9 @@ function render(gl, width, height) {
     gl.uniform1i(gl.getUniformLocation(renderProgram, "indexMap"), 6);
     gl.activeTexture(gl.TEXTURE6);
     gl.bindTexture(gl.TEXTURE_2D, gl.indexMap_texture);
-
+    gl.uniform1i(gl.getUniformLocation(renderProgram, "gradientMap"), 7);
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D, gl.gradient_texture);
 
     // gl.bindImageTexture(0, gl.color_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA8UI);
     // gl.bindImageTexture(1, gl.refNormal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F)

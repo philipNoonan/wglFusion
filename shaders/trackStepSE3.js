@@ -2,7 +2,7 @@ const se3TrackStepSource = `#version 310 es
 layout(local_size_x = 32, local_size_y = 32) in;
 
 layout(binding = 0, rgba32f)  readonly uniform highp image2D lastVertexMap; 
-layout(binding = 1, rgba32f)    readonly uniform highp image2D gradientMap;
+layout(binding = 1, rgba32f)  readonly uniform highp image2D gradientMap;
 layout(binding = 2, rgba16ui) readonly uniform highp uimage2D mappingC2DMap;
 layout(binding = 3, rgba16ui) readonly uniform highp uimage2D mappingD2CMap;
 

@@ -115,13 +115,13 @@ function render(gl, width, height) {
 
     gl.viewport(width / 2.0, 240, width / 2.0, height - 240);
 
-    renderOpts = 0 << 0 | 
-                       1 << 1 |
+    renderOpts = 1 << 0 | 
+                       0 << 1 |
                        0 << 2 |
                        0 << 3 |
                        0 << 4 |
                        0 << 5 |
-                       1 << 6;
+                       0 << 6;
 
     gl.uniform1i(gl.getUniformLocation(renderProgram, "renderOptions"), renderOpts);
     gl.uniform2fv(gl.getUniformLocation(renderProgram, "imageSize"), imageSize);

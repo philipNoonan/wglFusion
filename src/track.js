@@ -147,9 +147,9 @@ function getReduction(gl, _A, _b, _icpData) {
     _icpData.icpCount = outputReductionData[28];
 }
 
-function reduceP2P(gl) {
+function reduceP2P(gl, level) {
     gl.useProgram(p2pReduceProg);
-    gl.uniform2fv(gl.getUniformLocation(p2pReduceProg, "imSize"), imageSize);
+    gl.uniform2fv(gl.getUniformLocation(p2pReduceProg, "imSize"), [imageSize[0] >> level, imageSize[1] >> level]);
     // buffers
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboReductionOutput);
@@ -173,12 +173,12 @@ function trackP2P(gl, width, height, _T, _level) {
     gl.uniform1i(gl.getUniformLocation(p2pTrackProg, "mip"), _level);
     gl.uniform4fv(gl.getUniformLocation(p2pTrackProg, "cam"), camPam);
     // textures
-    gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(0, gl.vertex_texture, _level, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(1, gl.normal_texture, _level, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(2, gl.refVertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(3, gl.refNormal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
     gl.bindImageTexture(4, gl.render_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8UI);
-    gl.dispatchCompute(width / 32, height / 32, 1);
+    gl.dispatchCompute(divup(width >> _level, 32), divup(height >> _level, 32), 1);
     gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
@@ -220,29 +220,32 @@ function calcPoseP2P(gl, width, height) {
       generateVertNorms(gl, width, height);
       raycastVolume(gl, width, height);
       
-      // var T = glMatrix.mat4.create();
+      var T = glMatrix.mat4.create();
 
-      // T = [...pose];
-      // var level = 0;
+      T = [...pose];
+      var level = 0;
 
-      // var A = new Float32Array(36); // 6 * 6
-      // var b = new Float32Array(6);
-      // var result = new Float32Array(6);
-      // var icpData = {AE:0.0, icpCount:0};
+      var A = new Float32Array(36); // 6 * 6
+      var b = new Float32Array(6);
+      var result = new Float32Array(6);
+      var icpData = {AE:0.0, icpCount:0};
 
-      // // use proper lvls ....
-      // for (let i = 0; i < 2; i++)
-      // {
-      //   var delta = glMatrix.mat4.create();
-      //   trackP2P(gl, width, height, T, level);
-      //   reduceP2P(gl);
-      //   getReduction(gl, A, b, icpData);
-      //   solve(A, b, result);
-      //   resultToMatrix(result, delta);
+      // use proper lvls ....
+      for (let level = 2; level >= 0; level--) {
+        for (let i = 0; i < iterations[level]; i++)
+        {
+          var delta = glMatrix.mat4.create();
+          trackP2P(gl, width, height, T, level);
+          reduceP2P(gl, level);
+          getReduction(gl, A, b, icpData);
+          solve(A, b, result);
+          resultToMatrix(result, delta);
+  
+          glMatrix.mat4.mul(T, delta, T);
+        }
+      }
 
-      //   glMatrix.mat4.mul(T, delta, T);
-      // }
-      // pose = [...T];
+      pose = [...T];
     }
     else {
       getClickedPoint(gl);
@@ -487,27 +490,27 @@ function calcPoseP2P(gl, width, height) {
 
     if (resetFlag == 0) {
 
-      // //T = [...pose];
-      // var level = 0;
+      //T = [...pose];
+      var level = 0;
 
-      // var A = new Float32Array(36); // 6 * 6
-      // var b = new Float32Array(6);
-      // var result = new Float32Array(6);
-      // var icpData = {AE:0.0, icpCount:0};
+      var A = new Float32Array(36); // 6 * 6
+      var b = new Float32Array(6);
+      var result = new Float32Array(6);
+      var icpData = {AE:0.0, icpCount:0};
 
-      // // use proper lvls ....
-      // for (let i = 0; i < 2; i++)
-      // {
-      //   var delta = glMatrix.mat4.create();
-      //   trackP2P(gl, imageSize[0], imageSize[1], T, level);
-      //   reduceP2P(gl);
-      //   getReduction(gl, A, b, icpData);
-      //   solve(A, b, result);
-      //   resultToMatrix(result, delta);
+      // use proper lvls ....
+      for (let i = 0; i < 5; i++)
+      {
+        var delta = glMatrix.mat4.create();
+        trackP2P(gl, imageSize[0], imageSize[1], T, level);
+        reduceP2P(gl);
+        getReduction(gl, A, b, icpData);
+        solve(A, b, result);
+        resultToMatrix(result, delta);
 
-      //   glMatrix.mat4.mul(T, delta, T);
-      // }
-      // //pose = [...T];
+        glMatrix.mat4.mul(T, delta, T);
+      }
+      //pose = [...T];
     }
     else {
       // reseting 
@@ -533,7 +536,7 @@ function calcPoseP2P(gl, width, height) {
       getClickedPoint(gl);
     }
 
-    // glMatrix.mat4.multiply(pose, pose, T);
+    glMatrix.mat4.multiply(pose, pose, T);
 
     let invPose = glMatrix.mat4.create();
     glMatrix.mat4.invert(invPose, pose);

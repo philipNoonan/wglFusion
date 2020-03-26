@@ -48,7 +48,7 @@ const fragmentShaderSource = `#version 310 es
 
     if (renderDepth == 1)
     {
-        vec4 depthData = vec4(texture(depth, t));
+        vec4 depthData = vec4(texture(depth, t, 2.0f));
         outColor = vec4(depthData.x * 10.0f, depthData.x * 10.0f, depthData.x * 10.0f, 1.0f);
     }
 
@@ -96,7 +96,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderVert == 1)
     {
         //vec4 vertsData = vec4(imageLoad(vertexMap, ivec2(t_image + 0.5f)));
-        vec4 vertsData = vec4(texture(vertexMap, t));
+        vec4 vertsData = vec4(textureLod(vertexMap, t, 2.0f));
 
         outColor = vec4(abs(vertsData.xyz), 1.0f);
     }

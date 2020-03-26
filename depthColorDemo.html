@@ -176,9 +176,14 @@
   <script src="node_modules/stats.js/build/stats.min.js"></script>
   <script src="node_modules/dat.gui/build/dat.gui.min.js"></script>
 
-
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.0"></script>
+
+
+  <!-- <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script> -->
 
 
   <script src="src/createAndCompileShader.js"></script>
@@ -214,6 +219,8 @@
   <script src="shaders/reduceSE3.js"></script>
   <script src="shaders/trackStepSE3.js"></script>
   <script src="shaders/reduceStepSE3.js"></script>
+  <script src="shaders/nearestSurface.js"></script>
+
 
   <script src="shaders/tfTest.js"></script>
 
@@ -324,37 +331,107 @@
 
 
 
+  var net;
+  var poseNetLoaded = 0;
+  var firstBodyPoseFound = 0;
+  var bodyPoseFound = 0;
+  var bodyPose;
 
-  function clickPoseNet() {
-    loadPoseNet();
+  var segmentation;
+  var bodyPixLoaded = 0;
+  var bodyMapFound = 0;
+  var firstbodyMapFound = 0;
+
+  var handsModelLoaded = 0;
+
+  var model;
+
+  function clickBodyPix() {
+     loadBodyPix();
   }
 
-  async function loadPoseNet() {
-    net = await posenet.load({
-  architecture: 'ResNet50',
-  outputStride: 32,
-  inputResolution: { width: 257, height: 200 },
-  quantBytes: 2
-});
+  function clickHandPose() {
+    loadHandModel();
+  }
 
-
-    poseNetLoaded = 1;  
+  async function loadHandModel() {
+    model = await handpose.load();
+    handsModelLoaded = 1;
 
   }
 
-  async function getBodyPose(image, net) {
-    var bPWorking = 0;
-    if (bodyPoseFound == 0 && bPWorking == 0)
-    {
-      bPWorking = 1;
-      bodyPoseFound = 0;
-      const bP = await net.estimateSinglePose(image, {flipHorizontal: false});
-      bodyPose = JSON.parse(JSON.stringify(bP));
-      bodyPoseFound = 1;
-      bpWorking = 0;
+  async function getHands(image) {
+      // Pass in a video stream (or an image, canvas, or 3D tensor) to obtain a
+  // hand prediction from the MediaPipe graph.
+  const predictions = await model.estimateHands(image);
+  if (predictions.length > 0) {
+    /*
+    `predictions` is an array of objects describing each detected hand, for example:
+    [
+      {
+        handInViewConfidence: 1, // The probability of a hand being present.
+        boundingBox: { // The bounding box surrounding the hand.
+          topLeft: [162.91, -17.42],
+          bottomRight: [548.56, 368.23],
+        },
+        landmarks: [ // The 3D coordinates of each hand landmark.
+          [472.52, 298.59, 0.00],
+          [412.80, 315.64, -6.18],
+          ...
+        ],
+        annotations: { // Semantic groupings of the `landmarks` coordinates.
+          thumb: [
+            [412.80, 315.64, -6.18]
+            [350.02, 298.38, -7.14],
+            ...
+          ],
+          ...
+        }
+      }
+    ]
+    */
+
+    for (let i = 0; i < predictions.length; i++) {
+      const keypoints = predictions[i].landmarks;
+
+      // Log hand keypoints.
+      for (let i = 0; i < keypoints.length; i++) {
+        const [x, y, z] = keypoints[i];
+        console.log(`Keypoint ${i}: [${x}, ${y}, ${z}]`);
+      }
     }
-    
+  }
+  }
 
+  async function loadBodyPix() {
+    net = await bodyPix.load({
+      architecture: 'MobileNetV1',
+      outputStride: 16,
+      multiplier: 1.0,
+      quantBytes: 2
+    });
+    bodyPixLoaded = 1;
+
+  }
+
+  async function getBodyMap(image, net) {
+      const seggy = await net.segmentMultiPersonParts(image, {
+      flipHorizontal: false,
+      internalResolution: 'medium',
+      segmentationThreshold: 0.3,
+      maxDetections: 10,
+      scoreThreshold: 0.3,
+      nmsRadius: 20,
+      minKeypointScore: 0.3,
+      refineSteps: 20
+    });
+    segmentation = seggy;
+    
+    bodyMapFound = 1;
+    if (firstbodyMapFound == 0)
+    {
+      firstbodyMapFound = 1;
+    }
   }
 
 
@@ -430,6 +507,12 @@
       resetVolume();
     }
     this.integrateVol = true;
+    this.bodyPose = function() {
+      clickBodyPix();
+    }
+    this.handPose = function() {
+      clickHandPose();
+    }
     this.length = 0.5;
     this.resolution = 128;
     this.maxDepth = 1.0;
@@ -445,6 +528,8 @@
   var fusionTypeClick = gui.add(param, 'fusionType', ['P2P', 'P2V', 'SPL']);
   var resetClick = gui.add(param, 'resetVol').name('Reset Volume');
   var integrateClick = gui.add(param, 'integrateVol').name('Integrate');
+  var getBodyPoseClick = gui.add(param, 'bodyPose').name('Use BodyPose');
+  var getHandPoseClick = gui.add(param, 'handPose').name('Use HandPose');
   var lengthSlider = gui.add(param, 'length', 0.05, 2.0);
   var maxDepthSlider = gui.add(param, 'maxDepth', 0.05, 10.0);
   var resolutionSlider = gui.add(param, 'resolution', [64, 128, 256, 512]);
@@ -518,6 +603,8 @@
   var removeUnnecessaryPointsProg;
   var genVirtualFrameProg;
 
+  var handMaskGlobalMapProg;
+
   var plottingBufferProg;
   var clickedPointProg;
   var renderProgram;
@@ -560,6 +647,8 @@
 
   var camPam = [412, 237, 630, 630]; // cx cy fx fy
   var colorCamPam = [418, 233, 619, 619];
+
+  var iterations = [2, 5, 10];
 
   var K = glMatrix.mat4.create();
       K[0] = camPam[2]; // fx
@@ -661,34 +750,42 @@ return Object.assign(document.createElement("video"), {
         // Upload the video frame to texture.
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
-		    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RED, gl.FLOAT, videos.depth);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RED, gl.FLOAT, videos.depth);
+        gl.generateMipmap(gl.TEXTURE_2D);
+
       }
 
       if (frameAvailableColor) {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, gl.color_texture);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RGBA, gl.UNSIGNED_BYTE, videos.color);
+        gl.generateMipmap(gl.TEXTURE_2D);
         
       }
 
       if (poseNetLoaded == 1) {
         getBodyPose(videos.color, net);
         //console.log(bodyPose)
-
-
-        
-
-
       }
 
- 
+      if (bodyPixLoaded == 1 && gl.frameCounter % 2 == 0) {
+          getBodyMap(videos.color, net)
+
+        }
+
+        if (handsModelLoaded == 1) {
+          getHands(videos.color);
+        }
+
+
       alignDepthColor(gl);
 
-            calcPoseSO3(gl);
+            //calcPoseSO3(gl);
             //calcPoseSE3(gl);
 
       if (fusionType == 'P2P') {
         calcPoseP2P(gl, imageSize[0], imageSize[1]);
+
       }
       else if (fusionType == 'P2V') {
         calcPoseP2V(gl, imageSize[0], imageSize[1]);
@@ -707,6 +804,95 @@ return Object.assign(document.createElement("video"), {
 
       render(gl, c.width, c.height);
 
+
+      if (firstbodyMapFound == 1)
+      { 
+        for (let person = 0; person < segmentation.length; person++)
+        {
+          if (segmentation[person].pose.score < 0.3) {
+            continue;
+          }
+            if (bodyMapFound == 1)
+            {
+              gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, gl.mask_texture);
+        //var seg = Float32Array.from(segmentation.data);
+        if (checkMPPMFlag == true) {
+          try {
+            for (let person = 0; person < segmentation.length; person++) {
+              if (segmentation[person].pose.score > 0.3) {
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RED, gl.FLOAT, segmentation[person].data);
+              }
+            }
+          }
+          catch(error) {
+            console.log(error);
+          }
+
+        }
+        else {
+          try {
+            let seg = Float32Array.from(segmentation.data);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, imageSize[0], imageSize[1], gl.RED, gl.FLOAT, seg); 
+          }
+          catch(error) {
+            console.log(error);
+          }
+
+        }
+
+              skeleLines = [];
+            const adjacentKeyPoints =
+            posenet.getAdjacentKeyPoints(segmentation[person].pose.keypoints, 0.01);
+            adjacentKeyPoints.forEach((keypoints) => {
+              skeleLines.push(keypoints[0].position.x);
+              skeleLines.push(keypoints[0].position.y);
+              skeleLines.push(keypoints[1].position.x);
+              skeleLines.push(keypoints[1].position.y);
+            });
+
+            skelePoints = [];
+
+            for (let iter = 0; iter < segmentation[person].pose.keypoints.length; iter++)
+            {
+              if (segmentation[person].pose.keypoints[iter].score < 0.01) {
+                continue;
+              }
+              skelePoints.push(segmentation[person].pose.keypoints[iter].position.x);
+              skelePoints.push(segmentation[person].pose.keypoints[iter].position.y);
+            }
+            bodyPoseFound = 0;
+          }
+
+
+          // gl.useProgram(renderSkeletonProgram);
+          // gl.bindImageTexture(0, gl.mappingC2D_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI);
+          // gl.bindImageTexture(1, gl.mappingD2C_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI);
+          // gl.bindVertexArray(gl.vaoSkeleton);
+          // gl.uniform2fv(gl.getUniformLocation(renderSkeletonProgram, "imageSize"), imageSize);
+          // gl.viewport(0, 240, c.width / 2.0, c.height - 240);
+          // gl.bindBuffer(gl.ARRAY_BUFFER, gl.skeleton_buffer);
+          // let sl = Float32Array.from(skeleLines);
+          // gl.bufferSubData(gl.ARRAY_BUFFER, 0, sl, 0, skeleLines.length);
+          // gl.lineWidth(5);
+          // gl.drawArrays(gl.LINES, 0, skeleLines.length / 2);     
+          // gl.bindVertexArray(null);
+
+          gl.useProgram(renderSkeletonProgram);
+          gl.bindImageTexture(0, gl.mappingC2D_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI);
+          gl.bindImageTexture(1, gl.mappingD2C_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA16UI);
+          gl.bindVertexArray(gl.vaoSkeleton);
+          gl.uniform2fv(gl.getUniformLocation(renderSkeletonProgram, "imageSize"), imageSize);
+          gl.viewport(0, 240, c.width / 2.0, c.height - 240);
+          gl.bindBuffer(gl.ARRAY_BUFFER, gl.skeleton_buffer);
+          let sp = Float32Array.from(skelePoints);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, sp, 0, skelePoints.length);
+          gl.drawArrays(gl.POINTS, 0, skelePoints.length / 2);     
+          gl.bindVertexArray(null);
+
+          }
+ 
+      }
       if (bodyPoseFound == 1)
       {
         let skelePoints = [];
@@ -805,14 +991,16 @@ return Object.assign(document.createElement("video"), {
 
   function setTextures(gl) {
 
-    var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-    var depthLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var colorLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+    let numberOfLevels = 3;
 
-      var colorAligned_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+    var depth_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+    var depthLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var color_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var colorLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
 
-      var gradient_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.LINEAR, gl.LINEAR_MIPMAP_NEAREST);
+      var colorAligned_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+
+      var gradient_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.LINEAR, gl.LINEAR_MIPMAP_NEAREST);
 
       var volume_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
       var volumeWeight_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
@@ -820,12 +1008,12 @@ return Object.assign(document.createElement("video"), {
       var render_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var renderGraph_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, 1024, 240, 1, gl.NEAREST, gl.NEAREST);
       
-      var vertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var vertexLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var normal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var vertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var vertexLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var normal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
-      var refVertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var refNormal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var refVertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var refNormal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
       var indexMap_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0] * 4, imageSize[1] * 4, 1, gl.NEAREST, gl.NEAREST);
       var indexMap_depthTexture = generateTexture(gl, 'depth', gl.R32F, 1, imageSize[0] * 4, imageSize[1] * 4, 1, gl.NEAREST, gl.NEAREST);
@@ -835,8 +1023,10 @@ return Object.assign(document.createElement("video"), {
 
       var virtualFrame_depthTexture = generateTexture(gl, 'depth', gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
 
-      var mappingC2D_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var mappingD2C_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var mappingC2D_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var mappingD2C_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA16UI, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+
+      var mask_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
 
 
 
@@ -899,6 +1089,8 @@ return Object.assign(document.createElement("video"), {
       gl.indexMap_texture = indexMap_texture;
       gl.mappingD2C_texture = mappingD2C_texture;
       gl.mappingC2D_texture = mappingC2D_texture;
+
+      gl.mask_texture = mask_texture;
 
       gl.indexMapFBO = indexMapFBO;
       gl.virtualFrameFBO = virtualFrameFBO;
@@ -1105,6 +1297,8 @@ return Object.assign(document.createElement("video"), {
       genVirtualFrameProg = createRenderProgram(gl, genVirtualFrameVertexShaderSource, genVirtualFrameFragmentShaderSource);
 
       alignDepthColorProg = createComputeProgram(gl, alignDepthColorSource);
+
+      //handMaskGlobalMapProg = createComputeProgram(gl, handMaskGlobalMapSource);
 
       // VERTEX FRAGMENT SHADERS
       plottingRenderProgram = createRenderProgram(gl, plottingVertexShaderSource, plottingFragmentShaderSource);

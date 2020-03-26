@@ -66,6 +66,9 @@ function generateVertNorms(gl, width, height) {
     gl.dispatchCompute(divup(width, 32), divup(height, 32), 1);
     gl.memoryBarrier(gl.ALL_BARRIER_BITS);
 
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.vertex_texture);
+    gl.generateMipmap(gl.TEXTURE_2D);
 
     gl.useProgram(vertToNormProg);
     gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F)
@@ -73,6 +76,10 @@ function generateVertNorms(gl, width, height) {
 
     gl.dispatchCompute(divup(width, 32), divup(height, 32), 1);
     gl.memoryBarrier(gl.ALL_BARRIER_BITS);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.normal_texture);
+    gl.generateMipmap(gl.TEXTURE_2D);
 
   }
 

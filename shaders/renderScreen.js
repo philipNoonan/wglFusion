@@ -63,7 +63,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderRefNorm == 1)
     {
         //vec4 refNormsData = vec4(imageLoad(refNormalMap, ivec2(t_image + 0.5f)));
-        vec4 refNormsData = vec4(texture(refNormalMap, t));
+        vec4 refNormsData = vec4(texture(refNormalMap, t, 0.0f));
 
         if (abs(refNormsData.x) > 0.0f)
         {
@@ -74,7 +74,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderRefVert == 1)
     {
        // vec4 refVertsData = vec4(imageLoad(refVertexMap, ivec2(t_image + 0.5f)));
-        vec4 refVertsData = vec4(texture(refVertexMap, t));
+        vec4 refVertsData = vec4(texture(refVertexMap, t, 1.0f));
 
         outColor = vec4(abs(refVertsData.xyz), 1.0f);
 
@@ -85,7 +85,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderNorm == 1)
     {
         //vec4 normsData = vec4(imageLoad(normalMap, ivec2(t_image + 0.5f)));
-        vec4 normsData = vec4(texture(normalMap, t));
+        vec4 normsData = vec4(texture(normalMap, t, 1.0f));
 
         if (abs(normsData.x) >= 0.0f)
         {
@@ -96,7 +96,7 @@ const fragmentShaderSource = `#version 310 es
     if (renderVert == 1)
     {
         //vec4 vertsData = vec4(imageLoad(vertexMap, ivec2(t_image + 0.5f)));
-        vec4 vertsData = vec4(textureLod(vertexMap, t, 2.0f));
+        vec4 vertsData = vec4(textureLod(vertexMap, t, 1.0f));
 
         outColor = vec4(abs(vertsData.xyz), 1.0f);
     }

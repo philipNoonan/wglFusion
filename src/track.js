@@ -182,9 +182,9 @@ function trackP2P(gl, width, height, _T, _level) {
     gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
-function reduceP2V(gl) {
+function reduceP2V(gl, level) {
     gl.useProgram(p2vReduceProg);
-    gl.uniform2fv(gl.getUniformLocation(p2vReduceProg, "imSize"), imageSize);
+    gl.uniform2fv(gl.getUniformLocation(p2vReduceProg, "imSize"), [imageSize[0] >> level, imageSize[1] >> level]);
     // buffers
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, gl.ssboReduction);
     gl.bindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, gl.ssboReductionOutput);
@@ -200,16 +200,16 @@ function trackP2V(gl, width, height, _T, _level) {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_3D, gl.volume_texture);
 
-    gl.bindImageTexture(0, gl.vertex_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(1, gl.normal_texture, 0, false, 0, gl.READ_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(2, gl.refNormal_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
-    gl.bindImageTexture(3, gl.render_texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8UI);
+    gl.bindImageTexture(0, gl.vertex_texture, _level, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(1, gl.normal_texture, _level, false, 0, gl.READ_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(2, gl.refNormal_texture, _level, false, 0, gl.WRITE_ONLY, gl.RGBA32F);
+    gl.bindImageTexture(3, gl.render_texture, _level, false, 0, gl.WRITE_ONLY, gl.RGBA8UI);
 
     gl.uniformMatrix4fv(gl.getUniformLocation(p2vTrackProg, "T"), false, _T);
     gl.uniform1f(gl.getUniformLocation(p2vTrackProg, "volDim"), volLength);
     gl.uniform1f(gl.getUniformLocation(p2vTrackProg, "volSize"), volSize[0]);
     gl.uniform1i(gl.getUniformLocation(p2vTrackProg, "mip"), _level);
-    gl.dispatchCompute(width / 32, height / 32, 1);
+    gl.dispatchCompute(divup(width >> _level, 32), divup(height >> _level, 32), 1);
     gl.memoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
@@ -223,7 +223,6 @@ function calcPoseP2P(gl, width, height) {
       var T = glMatrix.mat4.create();
 
       T = [...pose];
-      var level = 0;
 
       var A = new Float32Array(36); // 6 * 6
       var b = new Float32Array(6);
@@ -263,7 +262,6 @@ function calcPoseP2P(gl, width, height) {
 
 
       var T = glMatrix.mat4.clone(pose);
-      var level = 0;
 
       var A = new Float32Array(36); // 6 * 6
       var b = new Float32Array(6);
@@ -275,58 +273,60 @@ function calcPoseP2P(gl, width, height) {
       var tracked = false;
 
 
-
-      for (let i = 0; i < 2; i++)
-      {
-
-        var twistedResult = twist(result);
-        let tempTmat = math.expm(twistedResult);
-
-        let tempTtemp = glMatrix.mat4.fromValues(tempTmat.get([0,0]), tempTmat.get([0,1]), tempTmat.get([0,2]), tempTmat.get([0,3]),
-                                             tempTmat.get([1,0]), tempTmat.get([1,1]), tempTmat.get([1,2]), tempTmat.get([1,3]),
-                                             tempTmat.get([2,0]), tempTmat.get([2,1]), tempTmat.get([2,2]), tempTmat.get([2,3]),
-                                             tempTmat.get([3,0]), tempTmat.get([3,1]), tempTmat.get([3,2]), tempTmat.get([3,3])
-          );
-        
-          let currT = glMatrix.mat4.create();
-          glMatrix.mat4.multiply(currT, tempTtemp, T);    
-
-        trackP2V(gl, width, height, currT, level);
-        reduceP2V(gl);
-        getReduction(gl, A, b, icpData);
-
-        //console.log(icpData);
-
-        let scaling = 1.0 / (Math.max(...A) > 0.0 ? Math.max(...A) : 1.0);
-
-        for (let iter = 0; iter < 36; iter++) A[iter] *= scaling;
-        for (let iter = 0; iter < 6; iter++) b[iter] *= scaling;
-
-        //A = A + (i) <-- need to use some mathjs matrix multiplacation stuff here since A is 6x6
-
-        var deltaResult = new Float32Array(6);
-
-        solve(A, b, deltaResult);
-        var change = [0, 0, 0, 0, 0, 0];
-
-        for (let iter = 0; iter < 6; iter++) result[iter] -= deltaResult[iter];
-        for (let iter = 0; iter < 6; iter++) change[iter] = result[iter] - deltaResult[iter];
-
-        var Cnorm = math.norm(change);
-
-        resultPrev = result;
-
-        if (Cnorm < 1e-4 && icpData.AE != 0.0) {
-          tracked = true;
-          break;
+      for (level = 2; level >= 0; level--) {
+        for (let i = 0; i < iterations[level]; i++)
+        {
+  
+          var twistedResult = twist(result);
+          let tempTmat = math.expm(twistedResult);
+  
+          let tempTtemp = glMatrix.mat4.fromValues(tempTmat.get([0,0]), tempTmat.get([0,1]), tempTmat.get([0,2]), tempTmat.get([0,3]),
+                                               tempTmat.get([1,0]), tempTmat.get([1,1]), tempTmat.get([1,2]), tempTmat.get([1,3]),
+                                               tempTmat.get([2,0]), tempTmat.get([2,1]), tempTmat.get([2,2]), tempTmat.get([2,3]),
+                                               tempTmat.get([3,0]), tempTmat.get([3,1]), tempTmat.get([3,2]), tempTmat.get([3,3])
+            );
+          
+            let currT = glMatrix.mat4.create();
+            glMatrix.mat4.multiply(currT, tempTtemp, T);    
+  
+          trackP2V(gl, width, height, currT, level);
+          reduceP2V(gl, level);
+          getReduction(gl, A, b, icpData);
+  
+          //console.log(icpData);
+  
+          let scaling = 1.0 / (Math.max(...A) > 0.0 ? Math.max(...A) : 1.0);
+  
+          for (let iter = 0; iter < 36; iter++) A[iter] *= scaling;
+          for (let iter = 0; iter < 6; iter++) b[iter] *= scaling;
+  
+          //A = A + (i) <-- need to use some mathjs matrix multiplacation stuff here since A is 6x6
+  
+          var deltaResult = new Float32Array(6);
+  
+          solve(A, b, deltaResult);
+          var change = [0, 0, 0, 0, 0, 0];
+  
+          for (let iter = 0; iter < 6; iter++) result[iter] -= deltaResult[iter];
+          for (let iter = 0; iter < 6; iter++) change[iter] = result[iter] - deltaResult[iter];
+  
+          var Cnorm = math.norm(change);
+  
+          resultPrev = result;
+  
+          if (Cnorm < 1e-4 && icpData.AE != 0.0) {
+            tracked = true;
+            break;
+          }
+          else {
+            tracked = false;
+          }
+  
+          // this._resultToMatrix(result, delta);
+          // glMatrix.mat4.mul(T, delta, T);
         }
-        else {
-          tracked = false;
-        }
-
-        // this._resultToMatrix(result, delta);
-        // glMatrix.mat4.mul(T, delta, T);
       }
+
 
       let tr = twist(result);
         let trmat = math.expm(tr);

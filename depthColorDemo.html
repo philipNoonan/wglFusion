@@ -1005,15 +1005,15 @@ return Object.assign(document.createElement("video"), {
       var volume_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
       var volumeWeight_texture = generateTexture(gl, gl.TEXTURE_3D, gl.R32F, 1, volSize[0], volSize[1], volSize[2], gl.NEAREST, gl.NEAREST);
 
-      var render_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var render_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
       var renderGraph_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA8UI, 1, 1024, 240, 1, gl.NEAREST, gl.NEAREST);
       
-      var vertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var vertexLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var normal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var vertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var vertexLast_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var normal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
 
-      var refVertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
-      var refNormal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST);
+      var refVertex_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
+      var refNormal_texture = generateTexture(gl, gl.TEXTURE_2D, gl.RGBA32F, numberOfLevels, imageSize[0], imageSize[1], 1, gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
 
       var indexMap_texture = generateTexture(gl, gl.TEXTURE_2D, gl.R32F, 1, imageSize[0] * 4, imageSize[1] * 4, 1, gl.NEAREST, gl.NEAREST);
       var indexMap_depthTexture = generateTexture(gl, 'depth', gl.R32F, 1, imageSize[0] * 4, imageSize[1] * 4, 1, gl.NEAREST, gl.NEAREST);

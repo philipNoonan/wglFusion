@@ -228,6 +228,7 @@
 
 
   <script src="shaders/renderScreen.js"></script>
+  <script src="shaders/renderScreenMarchingCubes.js"></script>
   <script src="shaders/getClickedPoint.js"></script>
   <script src="shaders/ploting.js"></script>
   <script src="shaders/skeleton.js"></script>
@@ -706,6 +707,8 @@ canvas.addEventListener('contextmenu', e => {
   var plottingRenderProgram;
   var renderSkeletonProgram;
 
+  var mcRenderProg;
+
   var tfTestProg;
 
   var resetFlag = 0;
@@ -897,6 +900,7 @@ return Object.assign(document.createElement("video"), {
       uploadGraphPoints(gl, pose[12], pose[13], pose[14]);
 
       render(gl, c.width, c.height);
+      renderMarchingCubes(gl);
 
 
       if (firstbodyMapFound == 1)
@@ -1414,6 +1418,8 @@ return Object.assign(document.createElement("video"), {
       gl.vaoPlotting = vaoPlotting;
       gl.vaoRender = vaoRender;
       gl.vaoSkeleton = vaoSkeleton;
+
+      gl.vaoMarchingCubes = vaoMarchingCubes;
   }
 
   function initGL(gl) {
@@ -1453,7 +1459,7 @@ return Object.assign(document.createElement("video"), {
       renderProgram = createRenderProgram(gl, vertexShaderSource, fragmentShaderSource);
       renderSkeletonProgram = createRenderProgram(gl, skeletonVertexShaderSource, skeletonFragmentShaderSource);
 
-
+      mcRenderProg = createRenderProgram(gl, mcVertexShaderSource, mcFragmentShaderSource);
 
       // var varyings = ["iddy"];
       // tfTestProg = createRenderProgram(gl, tfTestVertexShaderSource, tfTestFragmentShaderSource, varyings);

@@ -4,9 +4,8 @@ const mcVertexShaderSource = `#version 310 es
 
     layout(location = 0) in float positionMC;
 
-    uniform float MCScaleFactor;
     uniform mat4 MVP;
-    uniform vec3 pixDims;
+    uniform float pixDims;
 
     out vec3 TexCoord3D;
 

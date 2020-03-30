@@ -491,7 +491,6 @@ function calcPoseP2P(gl, width, height) {
     if (resetFlag == 0) {
 
       //T = [...pose];
-      var level = 0;
 
       var A = new Float32Array(36); // 6 * 6
       var b = new Float32Array(6);
@@ -499,16 +498,18 @@ function calcPoseP2P(gl, width, height) {
       var icpData = {AE:0.0, icpCount:0};
 
       // use proper lvls ....
-      for (let i = 0; i < 5; i++)
-      {
-        var delta = glMatrix.mat4.create();
-        trackP2P(gl, imageSize[0], imageSize[1], T, level);
-        reduceP2P(gl);
-        getReduction(gl, A, b, icpData);
-        solve(A, b, result);
-        resultToMatrix(result, delta);
-
-        glMatrix.mat4.mul(T, delta, T);
+      for (let level = 2; level >= 0; level--) {
+        for (let i = 0; i < iterations[level]; i++)
+        {
+          var delta = glMatrix.mat4.create();
+          trackP2P(gl, imageSize[0], imageSize[1], T, level);
+          reduceP2P(gl, level);
+          getReduction(gl, A, b, icpData);
+          solve(A, b, result);
+          resultToMatrix(result, delta);
+  
+          glMatrix.mat4.mul(T, delta, T);
+        }
       }
       //pose = [...T];
     }

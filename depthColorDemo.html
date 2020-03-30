@@ -197,6 +197,7 @@
   <script src="src/track.js"></script>
   <script src="src/render.js"></script>
   <script src="src/renderSkeleton.js"></script>
+  <script src="src/tables.js"></script>
 
 
   <script src="shaders/depthToVert.js"></script>
@@ -220,6 +221,7 @@
   <script src="shaders/trackStepSE3.js"></script>
   <script src="shaders/reduceStepSE3.js"></script>
   <script src="shaders/nearestSurface.js"></script>
+  <script src="shaders/histoPyramidSource.js"></script>
 
 
   <script src="shaders/tfTest.js"></script>
@@ -255,8 +257,89 @@
   }
 
 
+  const canvas = document.getElementById("canvasGL");
+
+  var windowSize = {
+            x: canvas.width,
+            y: canvas.height
+        };
+
+var zoom = 1;
+
+var viewport = new Array(1);
+
+var mousePos = [0, 0];
+var rotation = [0, 0];
+var cameraPos = [0, 0];
+
+var dragging = false;
+viewport = {
+    x: 0,
+    y: 0,
+    z: windowSize.x,
+    w: windowSize.y
+};
+
+function zoomCall(event) {
+    event.preventDefault();
+    zoom += event.deltaY * 0.01;
+    console.log(zoom);       
+
+}
+
+function mouseDownCall(event) {
+    dragging = true;
+}
+function mouseUpCall(event) {
+    dragging = false;
+    mousePos = [0, 0];
+}
 
 
+function mouseMoveCall(event) {
+    if (dragging) {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        if (typeof event === 'object') {
+            switch (event.which) {
+            case 1:
+                if (mousePos[0] != 0.0)
+                {
+                    rotation[0] -= ((mousePos[0] - x) * 0.01);
+                    rotation[1] -= ((mousePos[1] - y) * 0.01);
+                }
+                mousePos = [x, y];
+                break;
+            case 3:
+            if (mousePos[0] != 0.0)
+                {
+                    cameraPos[0] -= ((mousePos[0] - x) * 0.01);
+                    cameraPos[1] += ((mousePos[1] - y) * 0.01);
+                }
+                mousePos = [x, y];
+                break;
+            case 2:
+                break;
+            default:
+                //console.log(`Unknown button code: ${event.button}`);
+            }
+        }
+        console.log(cameraPos, rotation);       
+    }
+
+   
+}
+
+canvas.addEventListener('wheel', zoomCall);
+canvas.addEventListener('mousedown', mouseDownCall);
+canvas.addEventListener('mousemove', mouseMoveCall);
+canvas.addEventListener('mouseup', mouseUpCall);
+canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+});
 
 
 
@@ -487,6 +570,10 @@
 
   }
 
+  function extractSurface() {
+    getIsoSurface(gl);
+  }
+
 
   var gl;
 
@@ -513,6 +600,9 @@
     this.handPose = function() {
       clickHandPose();
     }
+    this.getIsoSurface = function() {
+      extractSurface();
+    }
     this.length = 0.5;
     this.resolution = 128;
     this.maxDepth = 1.0;
@@ -535,6 +625,8 @@
   var resolutionSlider = gui.add(param, 'resolution', [64, 128, 256, 512]);
   var renderDepthClick = gui.add(param, 'renderDepth').name('Depth')
   var renderNormalClick = gui.add(param, 'renderNormal').name('Normals')
+
+  var getSurfaceClick = gui.add(param, 'getIsoSurface').name('Extract Surface');
 
   fusionTypeClick.onChange(function(value) {
     fusionType = value;
@@ -604,6 +696,8 @@
   var genVirtualFrameProg;
 
   var handMaskGlobalMapProg;
+  var constructHistoPyramidProgram;
+  var traverseHistoPyramidProgram;
 
   var plottingBufferProg;
   var clickedPointProg;
@@ -1067,7 +1161,23 @@ return Object.assign(document.createElement("video"), {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 
-     
+
+      // histopyramids
+      var textureTriTable = generateTexture(gl, gl.TEXTURE_2D, gl.R32UI, 1, 256 * 16, 1, 1, gl.NEAREST, gl.NEAREST);
+      var textureNrTriangles = generateTexture(gl, gl.TEXTURE_2D, gl.R32UI, 1, 256, 1, 1, gl.NEAREST, gl.NEAREST);
+      var textureOffsets3 = generateTexture(gl, gl.TEXTURE_2D, gl.R32UI, 1, 72, 1, 1, gl.NEAREST, gl.NEAREST);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, textureTriTable);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256 * 16, 1, gl.RED_INTEGER, gl.UNSIGNED_INT, triTable);
+      gl.bindTexture(gl.TEXTURE_2D, textureNrTriangles);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RED_INTEGER, gl.UNSIGNED_INT, nrOfTriangles);
+      gl.bindTexture(gl.TEXTURE_2D, textureOffsets3);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 72, 1, gl.RED_INTEGER, gl.UNSIGNED_INT, offsets3);
+
+
+      let levelsHP = Math.log2(volSize[0]) + 1;
+      var textureHistoPyramid = generateTexture(gl, gl.TEXTURE_3D, gl.R32UI, levelsHP, volSize[0], volSize[0], volSize[0], gl.NEAREST, gl.NEAREST_MIPMAP_NEAREST);
 
       gl.depth_texture = depth_texture;
       gl.depthLast_texture = depthLast_texture;
@@ -1091,6 +1201,14 @@ return Object.assign(document.createElement("video"), {
       gl.mappingC2D_texture = mappingC2D_texture;
 
       gl.mask_texture = mask_texture;
+
+      gl.triTable_texture = textureTriTable;
+      gl.nrTriangles_texture = textureNrTriangles;
+      gl.offsets3_texture = textureOffsets3;
+      gl.hp_texture = textureHistoPyramid;
+      gl.levelsHP = levelsHP;
+      gl.totalSumVerts = 0;
+
 
       gl.indexMapFBO = indexMapFBO;
       gl.virtualFrameFBO = virtualFrameFBO;
@@ -1238,6 +1356,30 @@ return Object.assign(document.createElement("video"), {
 
       gl.bindVertexArray(null);
 
+
+      
+
+
+      let sumOutput = new Uint32Array(1);
+        var ssboHPSum = gl.createBuffer();
+        gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboHPSum);
+        gl.bufferData(gl.SHADER_STORAGE_BUFFER, sumOutput, gl.DYNAMIC_COPY);
+
+        let hpVerts = new Float32Array(512*512*256); 
+        var ssboHPVerts = gl.createBuffer();
+        gl.bindBuffer(gl.SHADER_STORAGE_BUFFER, ssboHPVerts);
+        gl.bufferData(gl.SHADER_STORAGE_BUFFER, hpVerts, gl.DYNAMIC_COPY, 0, 512*512*256);
+
+        var vaoMarchingCubes = gl.createVertexArray();
+
+      gl.bindVertexArray(vaoMarchingCubes);
+      var vertLoc = 0;
+      gl.enableVertexAttribArray(vertLoc);
+      gl.bindBuffer(gl.ARRAY_BUFFER, ssboHPVerts);
+      gl.vertexAttribPointer(vertLoc, 1, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+
+
       gl.vertex_buffer = vertex_buffer;
       gl.vertex_location = vertex_location;
       gl.index_buffer = index_buffer;
@@ -1258,6 +1400,9 @@ return Object.assign(document.createElement("video"), {
       gl.ssboGraphX = ssboGraphX;
       gl.ssboGraphY = ssboGraphY;
       gl.ssboGraphZ = ssboGraphZ;
+
+      gl.ssboHPSum = ssboHPSum;
+      gl.ssboHPVerts = ssboHPVerts;
 
 
       gl.buffSwitch = buffSwitch;
@@ -1300,6 +1445,9 @@ return Object.assign(document.createElement("video"), {
 
       //handMaskGlobalMapProg = createComputeProgram(gl, handMaskGlobalMapSource);
 
+      constructHistoPyramidProgram = createComputeProgram(gl, constructHistoPyramidSource);
+      traverseHistoPyramidProgram = createComputeProgram(gl, traverseHistoPyramidSource);
+
       // VERTEX FRAGMENT SHADERS
       plottingRenderProgram = createRenderProgram(gl, plottingVertexShaderSource, plottingFragmentShaderSource);
       renderProgram = createRenderProgram(gl, vertexShaderSource, fragmentShaderSource);
@@ -1336,7 +1484,6 @@ return Object.assign(document.createElement("video"), {
   // Creates WebGL/WebGL2 context used to upload depth video to texture,
     // read the pixels to Float buffer and optionElally render the texture.
     function configureGLContext() {
-      const canvas = document.getElementById("canvasGL");
       var ctx = canvas.getContext('webgl2-compute', {antialias: false});
 
       canvas.addEventListener('mousedown', function(e) {

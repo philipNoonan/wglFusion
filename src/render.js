@@ -167,3 +167,160 @@ function render(gl, width, height) {
     gl.bindVertexArray(null);
 
 }
+
+
+
+function yawPitchRoll(yaw, pitch, roll) {
+
+  var cosYaw = Math.cos(yaw);
+  var sinYaw = Math.sin(yaw);
+  var cosPitch = Math.cos(pitch);
+  var sinPitch = Math.sin(pitch);
+  var cosRoll = Math.cos(roll);
+  var sinRoll = Math.sin(roll);
+
+return [
+cosYaw * cosPitch,
+cosYaw * sinPitch * sinRoll - sinYaw * cosRoll,
+cosYaw * sinPitch * cosRoll + sinYaw * sinRoll,
+0.0,
+sinYaw * cosPitch,
+sinYaw * sinPitch * sinRoll + cosYaw * cosRoll,
+sinYaw * sinPitch * cosRoll - cosYaw * sinRoll,
+0.0,
+-sinPitch,
+cosPitch * sinRoll,
+cosPitch * cosRoll,
+0.0,
+0.0, 0.0, 0.0, 1.0
+];
+}
+
+function setOrthoVerts(x, y, z) {
+  var positions = new Float32Array([
+    1.0,	1.0,	z * 2.0 - 1.0,		// top right
+    1.0,	-1.0,	z * 2.0 - 1.0,		 // bottom right
+    -1.0,	-1.0,	z * 2.0 - 1.0,		 // bottom left
+    -1.0,	1.0,	z * 2.0 - 1.0,		  // Top left
+
+    x * 2.0 - 1.0, 1.0,	1.0,		     // top right
+    x * 2.0 - 1.0, 1.0,  -1.0,		     // bottom right
+    x * 2.0 - 1.0, -1.0, -1.0,		     // bottom left
+    x * 2.0 - 1.0, -1.0,  1.0,		      // Top left
+
+    1.0,	y * 2.0 - 1.0, 1.0,			 // top right
+    1.0,	y * 2.0 - 1.0, -1.0,		 // bottom right
+    -1.0,	y * 2.0 - 1.0, -1.0,		 // bottom left
+    -1.0,	y * 2.0 - 1.0, 1.0]);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertexPosBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+
+var texCoords = new Float32Array([
+1.0, 1.0, z, // top right
+1.0, 0.0, z, // bottom right
+0.0, 0.0, z, // bottom left
+0.0, 1.0, z, // Top left
+
+x, 1.0, 1.0, // top right
+x, 1.0, 0.0, // bottom right
+x, 0.0, 0.0, // bottom left
+x, 0.0, 1.0, // Top left
+
+1.0, y, 1.0, // top right
+1.0, y, 0.0, // bottom right
+0.0, y, 0.0, // bottom left
+0.0, y, 1.0, // Top left
+]);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertexTexBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER, null);
+}
+
+function renderMarchingCubes(gl) {
+
+gl.orientation[0] = gl.rotation[0]; // yaw
+gl.orientation[1] = gl.rotation[1]; // pitch
+gl.orientation[2] += 0.001; // roll
+
+
+var yawMatrix = new Float32Array(yawPitchRoll(gl.orientation[0], 0.0, 0.0));
+var pitchMatrix = new Float32Array(yawPitchRoll(0.0, gl.orientation[1], 0.0));
+var rollMatrix = new Float32Array(yawPitchRoll(0.0, 0.0, gl.orientation[2]));
+var yawPitchRollMatrix = new Float32Array(yawPitchRoll(gl.orientation[0], gl.orientation[1], gl.orientation[2]));
+var matrices = [yawMatrix, pitchMatrix, rollMatrix, yawPitchRollMatrix];
+
+setOrthoVerts(gl.sliderX.value / gl.size, gl.sliderY.value / gl.size, gl.sliderZ.value / gl.size);
+
+// Clear color buffer
+gl.clearColor(0.0, 0.0, 0.0, 1.0);
+gl.clear(gl.COLOR_BUFFER_BIT);
+gl.clearDepth(1.0);                 // Clear everything
+gl.enable(gl.DEPTH_TEST);           // Enable depth testing
+gl.depthFunc(gl.LEQUAL); // Near things obscure far things
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+// Bind program
+gl.useProgram(gl.renderProgram);
+
+gl.uniform1i(gl.getUniformLocation(gl.renderProgram, 'volumeData'), 0);
+
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_3D, gl.textureVolume);
+
+var translateModel = vec3.create();
+var translateView = vec3.create();
+
+//vec3.set(translateModel, (gl.size / gl.ogSize[0]) / 3.0, (gl.size / gl.ogSize[1]) / 3.0, (gl.size / gl.ogSize[2]) / 3.0); //make offset to centre of og volume in units of -1 -> 1
+vec3.set(translateModel, 0, 0, (512.0 - gl.ogSize[2]) / 256.0); //make offset to centre of og volume in units of -1 -> 1
+
+vec3.set(translateView, gl.cameraPos[0], gl.cameraPos[1], -gl.zoom);
+var model = mat4.create();
+var view = mat4.create();
+
+mat4.translate(model, model, translateModel);
+
+mat4.translate(view, view, translateView);
+
+mat4.rotateX(view, view, gl.orientation[1]);
+mat4.rotateY(view, view, gl.orientation[0]);
+
+var perspective = mat4.create();
+
+mat4.perspective(perspective, 45 * Math.PI / 180, gl.canvas.clientWidth / gl.canvas.clientHeight, .01, 1000);
+
+var MV = mat4.create();
+var MVP = mat4.create();
+
+mat4.multiply(MV, view, model);
+
+mat4.multiply(MVP, perspective, MV);
+
+gl.viewport(gl.vp.x, gl.vp.y, gl.vp.z, gl.vp.w);
+
+gl.useProgram(gl.mcRenderProgram);
+
+gl.bindVertexArray(gl.vaoMarchingCubes);
+
+gl.uniformMatrix4fv(gl.getUniformLocation(gl.mcRenderProgram, 'MVP'), false, MVP);
+gl.uniform1f(gl.getUniformLocation(gl.mcRenderProgram, 'MCScaleFactor'), 0.25);
+gl.uniform1i(gl.getUniformLocation(gl.mcRenderProgram, 'volumeData'), 0);
+gl.uniform3fv(gl.getUniformLocation(gl.mcRenderProgram, "pixDims"), gl.pixDims);
+gl.uniform3fv(gl.getUniformLocation(gl.mcRenderProgram, "volRatio"), [gl.size / gl.ogSize[0], gl.size / gl.ogSize[1], gl.size / gl.ogSize[2]]);
+
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_3D, gl.textureHistoPyramid);
+
+if (gl.renderMC.checked == true) {
+  gl.drawArrays(gl.TRIANGLES, 0, (gl.totalSumVerts));
+}
+//gl.drawArrays(gl.POINTS, 0, (gl.totalSumVerts));
+
+
+
+
+gl.bindVertexArray(null);
+
+}

@@ -196,13 +196,7 @@ cosPitch * cosRoll,
 
 function renderMarchingCubes(gl) {
 
-// Clear color buffer
-// gl.clearColor(0.0, 0.0, 0.0, 1.0);
-// gl.clear(gl.COLOR_BUFFER_BIT);
-// gl.clearDepth(1.0);                 // Clear everything
-// gl.enable(gl.DEPTH_TEST);           // Enable depth testing
-// gl.depthFunc(gl.LEQUAL); // Near things obscure far things
-// gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
 
 
 var translateModel = glMatrix.vec3.create();
@@ -239,8 +233,16 @@ gl.useProgram(mcRenderProg);
 
 gl.bindVertexArray(gl.vaoMarchingCubes);
 
+//Clear color buffer
+// gl.clearColor(0.0, 0.0, 0.0, 1.0);
+// gl.clear(gl.COLOR_BUFFER_BIT);
+// gl.clearDepth(1.0);                 // Clear everything
+// gl.enable(gl.DEPTH_TEST);           // Enable depth testing
+gl.depthFunc(gl.LEQUAL); // Near things obscure far things
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
 gl.uniformMatrix4fv(gl.getUniformLocation(mcRenderProg, 'MVP'), false, MVP);
-gl.uniform1f(gl.getUniformLocation(mcRenderProg, "pixDims"), volSize[0] / volLength);
+gl.uniform1f(gl.getUniformLocation(mcRenderProg, "pixDims"), 0.001 * volSize[0] / volLength);
 
 gl.uniform1i(gl.getUniformLocation(mcRenderProg, 'volumeData'), 0);
 gl.activeTexture(gl.TEXTURE0);
